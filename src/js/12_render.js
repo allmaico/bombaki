@@ -6,7 +6,7 @@
 const ENVS = {
   dia: {
     zen: [.1, .36, .95], hor: [.58, .82, 1.0], sunDir: norm3([-.42, .74, -.52]), sunCol: [3.05, 2.85, 2.45], ambS: [.56, .68, .92], ambG: [.34, .3, .18],
-    fogC: [.64, .82, 1.0], fogD: .0046, exp: .96, cloudLo: .44, cloudHi: .7, cloudLight: [1.35, 1.33, 1.3], cloudDark: [.7, .78, .95], sat: 1.14
+    fogC: [.64, .82, 1.0], fogD: .0046, exp: .96, cloudLo: .44, cloudHi: .7, cloudLight: [1.35, 1.33, 1.3], cloudDark: [.7, .78, .95], sat: 1.1
   },
   entardecer: {
     zen: [.1, .15, .46], hor: [1.1, .5, .22], sunDir: norm3([.55, .13, -.82]), sunCol: [4.4, 2.1, .85], ambS: [.34, .3, .56], ambG: [.34, .19, .1],
@@ -66,9 +66,21 @@ uniform sampler2DArray uTex; uniform sampler2DShadow uShadow; uniform sampler2D 
 uniform mat4 uSh; uniform vec3 uCam; uniform vec3 uSunDir, uSunCol, uAmbS, uAmbG, uFogC, uZen, uHor;
 uniform float uFogD, uFogS, uExp, uShOn, uShBias, uShTexel, uSat, uTime, uBump;
 uniform vec3 uCloudLight, uCloudDark; uniform vec2 uCloudRange;
+/* Render v2: saída HDR (tonemap no pós), toon, tons de sombra/luz, rim, gradação de cor e vetores da câmera para o buffer de normais */
+uniform float uHdr, uToon, uRim, uGrade, uVmFlag, uShSpread; uniform vec3 uShTint, uLiTint, uVR, uVU, uFwd;
 vec3 toLin(vec3 c){ return pow(c, vec3(2.2)); }
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
-vec3 finish(vec3 c){ c = aces(c * uExp); c = pow(c, vec3(1.0/2.2)); float l = dot(c, vec3(.299,.587,.114)); return mix(vec3(l), c, uSat); }
+vec3 grade(vec3 c, float k){
+  /* gradação cartoon: sombras levemente frias, luzes quentes, curva S suave e vibrância (sem neon) */
+  float l = dot(c, vec3(.299,.587,.114));
+  c += vec3(-0.012, 0.0, 0.035) * (1.0 - sstep(0.0, 0.5, l)) * k;
+  c += vec3(0.018, 0.008, -0.016) * sstep(0.5, 1.0, l) * k;
+  c = mix(c, c*c*(3.0-2.0*c), 0.16*k);
+  float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+  c = mix(vec3(l), c, 1.0 + 0.14*k*(1.0 - (mx - mn)));
+  return clamp(c, 0.0, 1.0);
+}
+vec3 finish(vec3 c){ if (uHdr > 0.5) return c * uExp; c = aces(c * uExp); c = pow(c, vec3(1.0/2.2)); float l = dot(c, vec3(.299,.587,.114)); c = mix(vec3(l), c, uSat); return grade(c, uGrade); }
 vec3 skyBase(vec3 d){
   float h = max(d.y, 0.0); vec3 c = mix(uHor, uZen, pow(h, 0.5));
   c = mix(c, uHor*1.08, exp(-h*7.0)*0.4);
@@ -97,13 +109,13 @@ float shadowAt(vec3 wp, vec3 n){
   vec4 l = uSh * vec4(wp + n*0.07, 1.0); vec3 pc = l.xyz / l.w * 0.5 + 0.5;
   if (pc.x < 0.0 || pc.x > 1.0 || pc.y < 0.0 || pc.y > 1.0 || pc.z > 1.0) return 1.0;
   float s = 0.0;
-  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) s += texture(uShadow, vec3(pc.xy + vec2(float(i), float(j)) * uShTexel, pc.z - uShBias));
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) s += texture(uShadow, vec3(pc.xy + vec2(float(i), float(j)) * uShTexel * max(uShSpread, 1.0), pc.z - uShBias));
   s /= 9.0; vec2 e = abs(pc.xy * 2.0 - 1.0); float f = sstep(0.82, 1.0, max(e.x, e.y)); return mix(s, 1.0, f);
 }
 `;
 const FS_MAIN = FS_COMMON + `
 in vec3 vW; in vec3 vN; in vec2 vUv; in vec4 vCol; flat in vec4 vMat;
-out vec4 oCol;
+layout(location=0) out vec4 oCol; layout(location=1) out vec4 oNrm;
 void main(){
   int layer = int(vMat.x + 0.5); float spec = vMat.y / 255.0; float wnd = vMat.z / 255.0; int wf = int(vMat.w + 0.5); bool cut = wf >= 128; float emis = float(wf & 127) / 127.0;
   vec3 Ng = normalize(vN); if (!gl_FrontFacing) Ng = -Ng;
@@ -120,10 +132,14 @@ void main(){
     vec3 ck = texture(uTex, vec3(wuv*0.16, 33.0)).rgb;
     base = cg*w.r + cd*w.g + cs*w.b + cr*w.a;
     base = mix(base, ck, steep);
+    if (uToon > 0.5) { vec3 flat3 = textureLod(uTex, vec3(wuv*0.34, 30.0), 6.0).rgb * w.r + textureLod(uTex, vec3(wuv*0.3, 31.0), 6.0).rgb * w.g + textureLod(uTex, vec3(wuv*0.3, 32.0), 6.0).rgb * w.b + textureLod(uTex, vec3(wuv*0.28, 34.0), 6.0).rgb * w.a; base = mix(base, flat3 * mix(0.74, 1.22, mac) * mix(0.92, 1.08, mac2), 0.3 * (1.0 - steep));
+      base = mix(vec3(dot(base, vec3(.3, .59, .11))), base, 0.8) * vec3(0.95, 0.94, 1.0); }   /* terreno menos "limão": tira o excesso de saturação e de brilho */
     base *= mix(0.72, 1.12, mac) * mix(0.92, 1.08, mac2);
     tlum = dot(base, vec3(.3,.59,.11)); alpha = 1.0;
   #else
     vec4 t = texture(uTex, vec3(vUv, float(layer)));
+    /* cartoon "pintado": achata o ruído fino da textura em direção à cor média local (mip alto), mantendo tábuas/tijolos legíveis */
+    if (uToon > 0.5 && !cut) t.rgb = mix(textureLod(uTex, vec3(vUv, float(layer)), 5.0).rgb, t.rgb, 0.62);
     if (cut && t.a < 0.45) discard;
     base = t.rgb * toLin(vCol.rgb); alpha = t.a * vCol.a; tlum = dot(t.rgb, vec3(.3,.59,.11));
   #endif
@@ -138,21 +154,44 @@ void main(){
   float ndl = max(dot(N, uSunDir), 0.0);
   float sh = 1.0; if (uShOn > 0.5 && dot(Ng, uSunDir) > -0.2) sh = shadowAt(vW, Ng);
   vec3 amb = mix(uAmbG, uAmbS, N.y * 0.5 + 0.5);
-  vec3 col = base * (amb + uSunCol * ndl * sh);
+  vec3 col; float lit = ndl * sh;
+  if (uToon > 0.5) {
+    /* toon: terminador definido + 2 faixas de luz; sombra fria (tom do céu) e luz quente; a sombra projetada também vira faixa */
+    #ifdef TERRAIN
+    const float soft = 0.22;
+    #else
+    const float soft = 0.07;
+    #endif
+    float nl = mix(dot(Ng, uSunDir), dot(N, uSunDir), 0.4);
+    lit = sstep(-0.02, soft, nl) * (0.74 + 0.26 * sstep(0.4, 0.4 + soft * 1.6, nl)) * sstep(0.22, 0.7, sh);
+    col = base * (amb * uShTint * 0.98 + uSunCol * uLiTint * lit * 1.02);
+  } else col = base * (amb + uSunCol * lit);
   if (wnd > 0.0 && !cut) col += base * uSunCol * sh * max(dot(-N, uSunDir), 0.0) * 0.18;
   if (cut && wnd > 0.0) col += base * uSunCol * sh * (0.25 + 0.2*max(dot(-Ng, uSunDir), 0.0));
   if (spec > 0.0) {
     vec3 H = normalize(V + uSunDir); float sp = pow(max(dot(N, H), 0.0), 20.0 + spec * 150.0) * spec;
+    if (uToon > 0.5) sp = sstep(0.18, 0.3, sp) * spec * 0.55;                 /* brilho cartoon: mancha definida */
     float fr = pow(1.0 - max(dot(N, V), 0.0), 4.0);
     col += uSunCol * sp * sh * ndl * (0.35 + spec);
     col += skyBase(reflect(-V, N)) * (0.04 + 0.4 * spec) * (0.25 + fr) * (0.4 + 0.6*sh);
   }
+  #ifndef TERRAIN
+  /* rim light discreta (contorno de luz do céu nas bordas), some com a distância */
+  if (uToon > 0.5 && !cut) { float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * (1.0 - sstep(25.0, 70.0, dist)); col += base * (uAmbS * 0.9 + uSunCol * lit * 0.25) * rim * uRim; }
+  #endif
   col += base * emis * 5.0;
   #ifndef NOFOG
   float fg = 1.0 - exp(-max(dist - uFogS, 0.0) * uFogD);
   col = mix(col, fogCol(-V), clamp(fg, 0.0, 1.0));
   #endif
   oCol = vec4(finish(col), alpha);
+  /* buffer de normais/profundidade para contorno e oclusão: xy = normal na câmera, z = tipo, w = profundidade (m) */
+  #ifdef TERRAIN
+  const float kind = 0.9;
+  #else
+  float kind = cut ? 0.5 : (uVmFlag > 0.5 ? 0.75 : 1.0);
+  #endif
+  oNrm = vec4(dot(Ng, uVR), dot(Ng, uVU), kind, max(dot(vW - uCam, uFwd), 0.0));
 }`;
 const FS_SHADOW = GL_HEAD + `
 uniform sampler2DArray uTex; in vec3 vW; in vec3 vN; in vec2 vUv; in vec4 vCol; flat in vec4 vMat; out vec4 oCol;
@@ -161,7 +200,7 @@ void main(){ int wf = int(vMat.w + 0.5); if (wf >= 128) { if (texture(uTex, vec3
 const VS_SKY = GL_HEAD + `
 uniform mat4 uInvVP; uniform vec3 uCam; out vec3 vDir;
 void main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vec2 ndc = p * 2.0 - 1.0; vec4 w = uInvVP * vec4(ndc, 1.0, 1.0); vDir = w.xyz / w.w - uCam; gl_Position = vec4(ndc, 1.0, 1.0); }`;
-const FS_SKY = FS_COMMON + `in vec3 vDir; out vec4 oCol; void main(){ vec3 d = normalize(vDir); oCol = vec4(finish(skyFull(d)), 1.0); }`;
+const FS_SKY = FS_COMMON + `in vec3 vDir; layout(location=0) out vec4 oCol; layout(location=1) out vec4 oNrm; void main(){ vec3 d = normalize(vDir); oCol = vec4(finish(skyFull(d)), 1.0); oNrm = vec4(0.0, 0.0, 0.0, 1e4); }`;
 
 const FS_WATER = FS_COMMON + `
 in vec3 vW; in vec3 vN; in vec2 vUv; in vec4 vCol; flat in vec4 vMat; out vec4 oCol;
@@ -235,7 +274,7 @@ class Renderer {
   constructor(canvas, st) {
     this.canvas = canvas; this.st = st || settings;
     const q = QQ();
-    const g = canvas.getContext('webgl2', { antialias: !!this.st.aa && q.aa, alpha: false, depth: true, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: false, desynchronized: false });
+    const g = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: true, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: false, desynchronized: false });
     if (!g) throw new Error('WebGL2 indisponível');
     gl = g; this.gl = g; this.q = q; this.tex = null; this.ready = false;
     g.getExtension('EXT_color_buffer_float'); g.getExtension('OES_texture_float_linear');
@@ -244,13 +283,14 @@ class Renderer {
     P('main', VS_MAIN, FS_MAIN, ''); P('inst', VS_MAIN, FS_MAIN, '#define INST\n'); P('terr', VS_MAIN, FS_MAIN, '#define TERRAIN\n#define NOBUMP\n');
     P('vm', VS_MAIN, FS_MAIN, '#define NOFOG\n'); P('shadow', VS_MAIN, FS_SHADOW, ''); P('shadowI', VS_MAIN, FS_SHADOW, '#define INST\n');
     P('sky', VS_SKY, FS_SKY, ''); P('water', VS_MAIN, FS_WATER, ''); P('part', VS_PART, FS_PART, ''); P('beam', VS_BEAM, FS_BEAM, '');
+    this._initPost();
     this.cloud = buildCloudTex(g);
     this.emptyVao = g.createVertexArray();
     /* sombra */
     this.dummyShadow = g.createTexture(); g.bindTexture(g.TEXTURE_2D, this.dummyShadow); g.texStorage2D(g.TEXTURE_2D, 1, g.DEPTH_COMPONENT24, 1, 1);
     g.texParameteri(g.TEXTURE_2D, g.TEXTURE_COMPARE_MODE, g.COMPARE_REF_TO_TEXTURE); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_COMPARE_FUNC, g.LEQUAL);
     this._initShadow();
-    this.shR = 60; this.shVP = new Float32Array(16); this.shPl = new Float32Array(24);
+    this.shR = q.shR || 60; this.shVP = new Float32Array(16); this.shPl = new Float32Array(24);
     /* matrizes */
     this.P = new Float32Array(16); this.V = new Float32Array(16); this.VP = new Float32Array(16); this.IVP = new Float32Array(16); this.pl = new Float32Array(24);
     this.vmP = new Float32Array(16); this.vmV = new Float32Array(16); this.vmVP = new Float32Array(16);
@@ -285,7 +325,7 @@ class Renderer {
     this.shFbo = g.createFramebuffer(); g.bindFramebuffer(g.FRAMEBUFFER, this.shFbo); g.framebufferTexture2D(g.FRAMEBUFFER, g.DEPTH_ATTACHMENT, g.TEXTURE_2D, this.shTex, 0);
     g.drawBuffers([g.NONE]); g.readBuffer(g.NONE); g.bindFramebuffer(g.FRAMEBUFFER, null);
   }
-  setQuality() { this.q = QQ(); this._initShadow(); this.resize(); }
+  setQuality() { this.q = QQ(); this.shR = this.q.shR || 60; this._initShadow(); this.resize(); }
   setEnv(e) { this.env = typeof e === 'string' ? ENVS[e] : e; }
   /* ----- cena estática ----- */
   buildScene(d) {
@@ -340,6 +380,7 @@ class Renderer {
       uFogD: this.fogD || e.fogD, uFogS: this.fogS || 0, uExp: e.exp, uSat: e.sat || 1.1, uShOn: (this.shOn && !vm && this.shReady) ? 1 : 0, uShBias: this.shBias || 0, uShTexel: 1 / (this.shSize || 1), uSh: this.shVP, uBump: .02,
       uCloudLight: e.cloudLight, uCloudDark: e.cloudDark, uCloudRange: [e.cloudLo, e.cloudHi] });
     g.uniform1i(p.loc('uTex'), 0); g.uniform1i(p.loc('uShadow'), 1); g.uniform1i(p.loc('uCloud'), 2);
+    this._v2Uniforms(p, vm);
   }
   _bindTex() {
     const g = this.gl; g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D_ARRAY, this.tex);
@@ -351,6 +392,7 @@ class Renderer {
   /* ----- quadro ----- */
   render(cam, opts) {
     const g = this.gl, S = this.scene, e = this.env; opts = opts || {}; this.cam = cam; this.stats.draws = 0; this.stats.tris = 0; if (!this.ready) return;
+    const tCpu = performance.now(); this.timer.poll();
     this.resize(); const W = this.w, H = this.h, asp = W / H, qd = this.q.dist * (this.st.viewDist || 1); this.qd = qd;
     /* alcance e névoa: a névoa só começa depois de fogS e chega a ~85% no limite de desenho; no alto (paraquedas/vaca) o alcance cresce */
     const altK = clamp(((cam.y || 0) - (this.groundY || 0) - 25) / 110, 0, 1), rm = 1 + altK * 1.3; this.rm = rm; this.cullD = 400 * qd * rm;
@@ -366,7 +408,7 @@ class Renderer {
     /* --- sombra --- */
     this.shReady = false;
     if (this.shOn && S && !opts.noShadow) {
-      this._shadowSetup(cam); const sp = this.prog.shadow, spi = this.prog.shadowI;
+      this.timer.begin('sombra'); this._shadowSetup(cam); const sp = this.prog.shadow, spi = this.prog.shadowI;
       g.bindFramebuffer(g.FRAMEBUFFER, this.shFbo); g.viewport(0, 0, this.shSize, this.shSize); g.clear(g.DEPTH_BUFFER_BIT); g.enable(g.DEPTH_TEST); g.depthMask(true); g.disable(g.BLEND); g.disable(g.CULL_FACE);
       g.enable(g.POLYGON_OFFSET_FILL); g.polygonOffset(1.5, 3);
       g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D_ARRAY, this.tex);
@@ -376,10 +418,12 @@ class Renderer {
       if (dynOn) this._draw(this.dynMesh);
       g.useProgram(spi.p);
       for (const m of S.inst) if (m.cast && aabbVisible(this.shPl, m.mn, m.mx) && dist2(cam.x, cam.z, (m.mn[0] + m.mx[0]) / 2, (m.mn[2] + m.mx[2]) / 2) < 70 * 70) { const mm = m.lod || m; g.bindVertexArray(mm.vao); g.drawElementsInstanced(g.TRIANGLES, mm.n, g.UNSIGNED_INT, 0, m.count); this.stats.draws++; }
-      g.disable(g.POLYGON_OFFSET_FILL); g.bindFramebuffer(g.FRAMEBUFFER, null); this.shReady = true;
+      g.disable(g.POLYGON_OFFSET_FILL); g.bindFramebuffer(g.FRAMEBUFFER, null); this.shReady = true; this.timer.end();
     }
     /* --- principal --- */
+    this._beginScene(W, H); this.timer.begin('cena');
     g.viewport(0, 0, W, H); g.clearColor(e.hor[0], e.hor[1], e.hor[2], 1); g.clear(g.COLOR_BUFFER_BIT | g.DEPTH_BUFFER_BIT);
+    if (this.postActive && this.pf.nrm) g.clearBufferfv(g.COLOR, 1, [0, 0, 0, 1e4]);
     g.enable(g.DEPTH_TEST); g.depthFunc(g.LEQUAL); g.depthMask(true); g.disable(g.BLEND); g.enable(g.CULL_FACE); g.cullFace(g.BACK);
     this._bindTex();
     /* céu */
@@ -402,7 +446,8 @@ class Renderer {
         }
         g.enable(g.CULL_FACE); }
     }
-    /* transparentes */
+    /* transparentes (não escrevem no buffer de normais) */
+    this._mrt(false);
     g.enable(g.BLEND); g.blendFunc(g.SRC_ALPHA, g.ONE_MINUS_SRC_ALPHA); g.depthMask(false);
     if (S) {
       { const p = this.prog.main; this._bindCommon(p, this.VP, false); g.disable(g.CULL_FACE);
@@ -415,12 +460,14 @@ class Renderer {
     this._drawParts();
     /* viewmodel */
     if (vmOn) {
-      g.depthMask(true); g.disable(g.BLEND); g.clear(g.DEPTH_BUFFER_BIT); const vc = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: opts.vmFov || 62 };
+      this._mrt(true); g.depthMask(true); g.disable(g.BLEND); g.clear(g.DEPTH_BUFFER_BIT); const vc = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: opts.vmFov || 62 };
       this._cam(vc, asp, .015, 40, this.vmP, this.vmV, this.vmVP); const p = this.prog.vm;
       const sv = this.cam; this.cam = { x: 0, y: 0, z: 0 }; this._bindCommon(p, this.vmVP, true); this.cam = sv; p.set({ uBump: .012 });
       updateDyn(g, this.vmMesh, this.vmMB); g.disable(g.CULL_FACE); this._draw(this.vmMesh); g.enable(g.CULL_FACE);
     }
-    g.depthMask(true); g.disable(g.BLEND);
+    g.depthMask(true); g.disable(g.BLEND); this.timer.end();
+    if (this.postActive) this._post(W, H, cam.fov);
+    this.perf.cpu = this.perf.cpu * .9 + (performance.now() - tCpu) * .1;
   }
   /* partículas / feixes: dados em Float32Array de 12 floats por item */
   _uploadPB(b) { const g = this.gl; if (!b.n) return; g.bindBuffer(g.ARRAY_BUFFER, b.buf); g.bufferSubData(g.ARRAY_BUFFER, 0, b.data.subarray(0, b.n * 12)); }

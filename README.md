@@ -10,6 +10,19 @@ horizontal). Um único arquivo `index.html`, motor WebGL2 próprio, multiplayer 
 
 Também abre direto do arquivo (offline, contra bots). Online precisa de internet.
 
+## 🎨 v5.1 — Render v2, Fase A (visual cartoon)
+Mesmo renderizador WebGL2 próprio, com um estágio de pós-processamento (`src/js/13_post.js`):
+* **Luz cartoon em faixas** (terminador definido + 2 faixas), **sombra fria** (tom do céu) e **luz quente**, **rim light** discreta,
+  brilho especular em mancha e texturas "pintadas" (ruído fino achatado para a cor média).
+* **Contorno cartoon** por profundidade + normais (só na borda do objeto mais próximo; mais fraco em folhagem e terreno, some ao longe).
+* **Oclusão ambiente** em meia resolução, **imagem HDR** (RGBA16F) com tonemap ACES, **gradação de cor** e **FXAA**.
+* Presets: **Baixo** (direto na tela, luz cartoon, sombra curta), **Médio** (HDR + gradação + FXAA, sombra 70 m),
+  **Alto** (+ contorno + oclusão, sombra 90 m mais suave). Opções separadas: Contornos, Oclusão, Iluminação cartoon.
+* **Medidor de desempenho** (Configurações → Gráficos, ou `?perf=1`): FPS, tempo de quadro (média/p95/pior), CPU do render,
+  GPU por passe (quando o navegador oferece `EXT_disjoint_timer_query_webgl2`), chamadas, triângulos, VRAM estimada.
+* **Benchmark** no seu hardware: abra `index.html?auto=caos&bench=1` (ou `auto=tatico`) e espere ~1 minuto: a tabela compara
+  Alto, Alto sem contorno, Alto sem AO, Médio, Baixo e Muito baixo.
+
 ## 🆕 v5 — Battle Royale cartoon
 * **Visual:** dia azul com nuvens volumosas, névoa só no horizonte (alcance maior; nada de cenário desbotado), grama em tons de verde
   com manchas, caminhos de terra alaranjados, paredões em arenito, água azul-turquesa com brilho do sol.

@@ -251,7 +251,7 @@ function frame(ts) {
   G.rdt = (G.rdt || 0) + dt0; const cap = +settings.fpsCap || 0;
   if (cap && G.rdt < 1 / cap - 0.004) return;           /* limite de FPS: pula o desenho, a simulação continua */
   const dt = Math.min(G.rdt, .25); G.rdt = 0;
-  G.fpsAcc += dt; G.fpsN++; if (G.fpsAcc > .5) { G.fps = G.fpsN / G.fpsAcc; G.fpsAcc = 0; G.fpsN = 0; }
+  G.fpsAcc += dt; G.fpsN++; if (G.fpsAcc > .5) { G.fps = G.fpsN / G.fpsAcc; G.fpsAcc = 0; G.fpsN = 0; } PerfHud.tick(dt);
   try { renderFrame(dt); } catch (e) { if (!G.errShown) { G.errShown = true; console.error(e); UI.toast('Erro: ' + (e && e.message || e), 6000); } }
 }
 function startMetronome() {
@@ -296,6 +296,7 @@ async function boot() {
   const ld = $('loading'); ld.classList.add('fade'); setTimeout(() => ld.classList.add('hidden'), 700);
   const code = (QS.get('sala') || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.length >= 3) setTimeout(() => UI.joinModal(code), 600);
   const auto = QS.get('auto'); if (auto) setTimeout(() => Game.startOffline({ mode: auto, botLevel: QS.get('lv') || 'normal' }), 400);
+  if (QS.get('bench') === '1') { const wb = setInterval(() => { if (G.scene === 'play' && G.me) { clearInterval(wb); setTimeout(() => PerfHud.startBench(), 1500); } }, 500); }
 }
 function wireUI() {
   UI.on.offline = o => Game.startOffline(o);

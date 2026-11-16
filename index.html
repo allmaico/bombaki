@@ -340,6 +340,8 @@ body.touch #plist, body.touch #hints, body.touch #netinfo { display: none !impor
 .tab2 tr.blue .tb-av { border-color: #6aa8ff; } .tab2 tr.red .tb-av { border-color: #ff9a6a; }
 .tab2 .tb-nm { font: 22px 'Lilita One', Impact; } .tab2 .tb-nm em { display: block; font: 800 12px Nunito, sans-serif; font-style: normal; opacity: .75; } .tab2 .tb-money { color: #7bff6a; } .tab2 td small { font-size: 13px; }
 @media (max-width: 900px), (max-height: 560px) { #tabboard.tab2 { font-size: 12px; } .tab2 .tb-team b { font-size: 20px; } .tab2 .tb-sc span { font-size: 28px; min-width: 44px; } .tab2 .tb-t td { font-size: 15px; } .tab2 .tb-av { width: 34px; height: 34px; } .tab2 .tb-shield { display: none; } }
+#perfhud { position: fixed; left: 50%; transform: translateX(-50%); top: 66px; z-index: 60; background: #000c; color: #d8ffd0; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; padding: 8px 10px; border-radius: 8px; pointer-events: none; max-width: 520px; display: none; }
+#perfhud b { color: #fff; } #perfhud hr { border: 0; border-top: 1px solid #fff3; margin: 6px 0; } #perfhud table { border-collapse: collapse; } #perfhud td, #perfhud th { padding: 1px 6px; text-align: right; } #perfhud th { color: #ffe27a; }
 </style>
 </head>
 <body>
@@ -555,7 +557,7 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
    01_data.js — constantes, armas, personagens, itens, modos, textos
    ===================================================================== */
 'use strict';
-const VERSION = '5.0.0';
+const VERSION = '5.1.0';
 const DISCORD_URL = 'https://discord.gg/';           // troque pelo convite do seu servidor
 const ONLINE_DEMO = false;                            // true = contador "Jogadores Online" ILUSTRATIVO (igual à arte). false = mostra só os humanos da sala atual (sem servidor central não existe contagem global real)
 const DT = 1 / 60;                                  // passo fixo da simulação
@@ -707,10 +709,11 @@ const COUNTDOWN_FULL = 120;       // contagem regressiva (s) quando atinge o mí
 const COUNTDOWN_FILL = 20;        // contagem curta quando há ≥2 humanos e bots completam as vagas
 const BOT_LEVELS = { facil: { name: 'Fácil', react: .62, aim: 3.4, err: 3.2, burst: .6, grenade: .1 }, normal: { name: 'Normal', react: .42, aim: 5.2, err: 1.9, burst: 1, grenade: .3 }, dificil: { name: 'Difícil', react: .28, aim: 7.5, err: 1.0, burst: 1.4, grenade: .55 }, insano: { name: 'Insano', react: .16, aim: 11, err: .5, burst: 2, grenade: .8 } };
 const QUALITY = {
-  muito_baixo: { name: 'Muito baixo', scale: .55, shadow: 0, dist: .45, grass: .1, parts: .3, aa: false, terrLod: 34, lodDist: 30 },
-  baixo: { name: 'Baixo', scale: .7, shadow: 0, dist: .6, grass: .25, parts: .5, aa: false, terrLod: 44, lodDist: 38 },
-  medio: { name: 'Médio', scale: .85, shadow: 1024, dist: .8, grass: .55, parts: .75, aa: true, terrLod: 56, lodDist: 48 },
-  alto: { name: 'Alto', scale: 1, shadow: 2048, dist: 1, grass: 1, parts: 1, aa: true, terrLod: 72, lodDist: 60 }
+  /* post: 0 = direto na tela, 1 = HDR + gradação + FXAA, 2 = + contorno cartoon + oclusão ambiente. shR = raio da sombra (m) */
+  muito_baixo: { name: 'Muito baixo', scale: .55, shadow: 0, dist: .45, grass: .1, parts: .3, aa: false, terrLod: 34, lodDist: 30, post: 0 },
+  baixo: { name: 'Baixo', scale: .7, shadow: 1024, shR: 38, dist: .6, grass: .25, parts: .5, aa: false, terrLod: 44, lodDist: 38, post: 0 },
+  medio: { name: 'Médio', scale: .85, shadow: 2048, shR: 70, dist: .8, grass: .55, parts: .75, aa: true, terrLod: 56, lodDist: 48, post: 1 },
+  alto: { name: 'Alto', scale: 1, shadow: 2048, shR: 90, shSpread: 1.35, dist: 1, grass: 1, parts: 1, aa: true, terrLod: 72, lodDist: 60, post: 2, outline: 1, ao: 1 }
 };
 
 /* ---------------- textos engraçados ---------------- */
@@ -736,7 +739,7 @@ const DEFAULT_SETTINGS = {
   quality: 'alto', renderScale: 1, shadows: 2048, viewDist: 1, grass: 1, particles: 1, aa: true,
   fov: 90, sens: 1.0, adsSens: 0.85, invertY: false, master: 0.8, sfx: 1, music: 0.35, amb: 0.6,
   crosshair: '#ffffff', crossSize: 1, showFps: false, showHints: true, showPing: true, botLevel: 'normal', bobbing: 1, hitSound: true, cameraShake: 1,
-  fpsCap: 0, shadowQ: 'auto', perfMode: false, padSens: 1, touchSize: 1, touchAlpha: .8, touchSens: 1, voice: 'off', binds: {}
+  fpsCap: 0, shadowQ: 'auto', perfMode: false, outline: 'auto', ao: 'auto', toon: true, perfHud: false, padSens: 1, touchSize: 1, touchAlpha: .8, touchSens: 1, voice: 'off', binds: {}
 };
 const IS_TOUCH = (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches) || /Android|iPhone|iPad|Mobile/i.test((typeof navigator !== 'undefined' && navigator.userAgent) || '');
 const settings = Object.assign({}, DEFAULT_SETTINGS, { quality: IS_TOUCH ? 'baixo' : 'medio' }, store.get('settings', {}));
@@ -1689,7 +1692,7 @@ function buildCloudTex(gl) {
 const ENVS = {
   dia: {
     zen: [.1, .36, .95], hor: [.58, .82, 1.0], sunDir: norm3([-.42, .74, -.52]), sunCol: [3.05, 2.85, 2.45], ambS: [.56, .68, .92], ambG: [.34, .3, .18],
-    fogC: [.64, .82, 1.0], fogD: .0046, exp: .96, cloudLo: .44, cloudHi: .7, cloudLight: [1.35, 1.33, 1.3], cloudDark: [.7, .78, .95], sat: 1.14
+    fogC: [.64, .82, 1.0], fogD: .0046, exp: .96, cloudLo: .44, cloudHi: .7, cloudLight: [1.35, 1.33, 1.3], cloudDark: [.7, .78, .95], sat: 1.1
   },
   entardecer: {
     zen: [.1, .15, .46], hor: [1.1, .5, .22], sunDir: norm3([.55, .13, -.82]), sunCol: [4.4, 2.1, .85], ambS: [.34, .3, .56], ambG: [.34, .19, .1],
@@ -1749,9 +1752,21 @@ uniform sampler2DArray uTex; uniform sampler2DShadow uShadow; uniform sampler2D 
 uniform mat4 uSh; uniform vec3 uCam; uniform vec3 uSunDir, uSunCol, uAmbS, uAmbG, uFogC, uZen, uHor;
 uniform float uFogD, uFogS, uExp, uShOn, uShBias, uShTexel, uSat, uTime, uBump;
 uniform vec3 uCloudLight, uCloudDark; uniform vec2 uCloudRange;
+/* Render v2: saída HDR (tonemap no pós), toon, tons de sombra/luz, rim, gradação de cor e vetores da câmera para o buffer de normais */
+uniform float uHdr, uToon, uRim, uGrade, uVmFlag, uShSpread; uniform vec3 uShTint, uLiTint, uVR, uVU, uFwd;
 vec3 toLin(vec3 c){ return pow(c, vec3(2.2)); }
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
-vec3 finish(vec3 c){ c = aces(c * uExp); c = pow(c, vec3(1.0/2.2)); float l = dot(c, vec3(.299,.587,.114)); return mix(vec3(l), c, uSat); }
+vec3 grade(vec3 c, float k){
+  /* gradação cartoon: sombras levemente frias, luzes quentes, curva S suave e vibrância (sem neon) */
+  float l = dot(c, vec3(.299,.587,.114));
+  c += vec3(-0.012, 0.0, 0.035) * (1.0 - sstep(0.0, 0.5, l)) * k;
+  c += vec3(0.018, 0.008, -0.016) * sstep(0.5, 1.0, l) * k;
+  c = mix(c, c*c*(3.0-2.0*c), 0.16*k);
+  float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+  c = mix(vec3(l), c, 1.0 + 0.14*k*(1.0 - (mx - mn)));
+  return clamp(c, 0.0, 1.0);
+}
+vec3 finish(vec3 c){ if (uHdr > 0.5) return c * uExp; c = aces(c * uExp); c = pow(c, vec3(1.0/2.2)); float l = dot(c, vec3(.299,.587,.114)); c = mix(vec3(l), c, uSat); return grade(c, uGrade); }
 vec3 skyBase(vec3 d){
   float h = max(d.y, 0.0); vec3 c = mix(uHor, uZen, pow(h, 0.5));
   c = mix(c, uHor*1.08, exp(-h*7.0)*0.4);
@@ -1780,13 +1795,13 @@ float shadowAt(vec3 wp, vec3 n){
   vec4 l = uSh * vec4(wp + n*0.07, 1.0); vec3 pc = l.xyz / l.w * 0.5 + 0.5;
   if (pc.x < 0.0 || pc.x > 1.0 || pc.y < 0.0 || pc.y > 1.0 || pc.z > 1.0) return 1.0;
   float s = 0.0;
-  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) s += texture(uShadow, vec3(pc.xy + vec2(float(i), float(j)) * uShTexel, pc.z - uShBias));
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) s += texture(uShadow, vec3(pc.xy + vec2(float(i), float(j)) * uShTexel * max(uShSpread, 1.0), pc.z - uShBias));
   s /= 9.0; vec2 e = abs(pc.xy * 2.0 - 1.0); float f = sstep(0.82, 1.0, max(e.x, e.y)); return mix(s, 1.0, f);
 }
 `;
 const FS_MAIN = FS_COMMON + `
 in vec3 vW; in vec3 vN; in vec2 vUv; in vec4 vCol; flat in vec4 vMat;
-out vec4 oCol;
+layout(location=0) out vec4 oCol; layout(location=1) out vec4 oNrm;
 void main(){
   int layer = int(vMat.x + 0.5); float spec = vMat.y / 255.0; float wnd = vMat.z / 255.0; int wf = int(vMat.w + 0.5); bool cut = wf >= 128; float emis = float(wf & 127) / 127.0;
   vec3 Ng = normalize(vN); if (!gl_FrontFacing) Ng = -Ng;
@@ -1803,10 +1818,14 @@ void main(){
     vec3 ck = texture(uTex, vec3(wuv*0.16, 33.0)).rgb;
     base = cg*w.r + cd*w.g + cs*w.b + cr*w.a;
     base = mix(base, ck, steep);
+    if (uToon > 0.5) { vec3 flat3 = textureLod(uTex, vec3(wuv*0.34, 30.0), 6.0).rgb * w.r + textureLod(uTex, vec3(wuv*0.3, 31.0), 6.0).rgb * w.g + textureLod(uTex, vec3(wuv*0.3, 32.0), 6.0).rgb * w.b + textureLod(uTex, vec3(wuv*0.28, 34.0), 6.0).rgb * w.a; base = mix(base, flat3 * mix(0.74, 1.22, mac) * mix(0.92, 1.08, mac2), 0.3 * (1.0 - steep));
+      base = mix(vec3(dot(base, vec3(.3, .59, .11))), base, 0.8) * vec3(0.95, 0.94, 1.0); }   /* terreno menos "limão": tira o excesso de saturação e de brilho */
     base *= mix(0.72, 1.12, mac) * mix(0.92, 1.08, mac2);
     tlum = dot(base, vec3(.3,.59,.11)); alpha = 1.0;
   #else
     vec4 t = texture(uTex, vec3(vUv, float(layer)));
+    /* cartoon "pintado": achata o ruído fino da textura em direção à cor média local (mip alto), mantendo tábuas/tijolos legíveis */
+    if (uToon > 0.5 && !cut) t.rgb = mix(textureLod(uTex, vec3(vUv, float(layer)), 5.0).rgb, t.rgb, 0.62);
     if (cut && t.a < 0.45) discard;
     base = t.rgb * toLin(vCol.rgb); alpha = t.a * vCol.a; tlum = dot(t.rgb, vec3(.3,.59,.11));
   #endif
@@ -1821,21 +1840,44 @@ void main(){
   float ndl = max(dot(N, uSunDir), 0.0);
   float sh = 1.0; if (uShOn > 0.5 && dot(Ng, uSunDir) > -0.2) sh = shadowAt(vW, Ng);
   vec3 amb = mix(uAmbG, uAmbS, N.y * 0.5 + 0.5);
-  vec3 col = base * (amb + uSunCol * ndl * sh);
+  vec3 col; float lit = ndl * sh;
+  if (uToon > 0.5) {
+    /* toon: terminador definido + 2 faixas de luz; sombra fria (tom do céu) e luz quente; a sombra projetada também vira faixa */
+    #ifdef TERRAIN
+    const float soft = 0.22;
+    #else
+    const float soft = 0.07;
+    #endif
+    float nl = mix(dot(Ng, uSunDir), dot(N, uSunDir), 0.4);
+    lit = sstep(-0.02, soft, nl) * (0.74 + 0.26 * sstep(0.4, 0.4 + soft * 1.6, nl)) * sstep(0.22, 0.7, sh);
+    col = base * (amb * uShTint * 0.98 + uSunCol * uLiTint * lit * 1.02);
+  } else col = base * (amb + uSunCol * lit);
   if (wnd > 0.0 && !cut) col += base * uSunCol * sh * max(dot(-N, uSunDir), 0.0) * 0.18;
   if (cut && wnd > 0.0) col += base * uSunCol * sh * (0.25 + 0.2*max(dot(-Ng, uSunDir), 0.0));
   if (spec > 0.0) {
     vec3 H = normalize(V + uSunDir); float sp = pow(max(dot(N, H), 0.0), 20.0 + spec * 150.0) * spec;
+    if (uToon > 0.5) sp = sstep(0.18, 0.3, sp) * spec * 0.55;                 /* brilho cartoon: mancha definida */
     float fr = pow(1.0 - max(dot(N, V), 0.0), 4.0);
     col += uSunCol * sp * sh * ndl * (0.35 + spec);
     col += skyBase(reflect(-V, N)) * (0.04 + 0.4 * spec) * (0.25 + fr) * (0.4 + 0.6*sh);
   }
+  #ifndef TERRAIN
+  /* rim light discreta (contorno de luz do céu nas bordas), some com a distância */
+  if (uToon > 0.5 && !cut) { float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0) * (1.0 - sstep(25.0, 70.0, dist)); col += base * (uAmbS * 0.9 + uSunCol * lit * 0.25) * rim * uRim; }
+  #endif
   col += base * emis * 5.0;
   #ifndef NOFOG
   float fg = 1.0 - exp(-max(dist - uFogS, 0.0) * uFogD);
   col = mix(col, fogCol(-V), clamp(fg, 0.0, 1.0));
   #endif
   oCol = vec4(finish(col), alpha);
+  /* buffer de normais/profundidade para contorno e oclusão: xy = normal na câmera, z = tipo, w = profundidade (m) */
+  #ifdef TERRAIN
+  const float kind = 0.9;
+  #else
+  float kind = cut ? 0.5 : (uVmFlag > 0.5 ? 0.75 : 1.0);
+  #endif
+  oNrm = vec4(dot(Ng, uVR), dot(Ng, uVU), kind, max(dot(vW - uCam, uFwd), 0.0));
 }`;
 const FS_SHADOW = GL_HEAD + `
 uniform sampler2DArray uTex; in vec3 vW; in vec3 vN; in vec2 vUv; in vec4 vCol; flat in vec4 vMat; out vec4 oCol;
@@ -1844,7 +1886,7 @@ void main(){ int wf = int(vMat.w + 0.5); if (wf >= 128) { if (texture(uTex, vec3
 const VS_SKY = GL_HEAD + `
 uniform mat4 uInvVP; uniform vec3 uCam; out vec3 vDir;
 void main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vec2 ndc = p * 2.0 - 1.0; vec4 w = uInvVP * vec4(ndc, 1.0, 1.0); vDir = w.xyz / w.w - uCam; gl_Position = vec4(ndc, 1.0, 1.0); }`;
-const FS_SKY = FS_COMMON + `in vec3 vDir; out vec4 oCol; void main(){ vec3 d = normalize(vDir); oCol = vec4(finish(skyFull(d)), 1.0); }`;
+const FS_SKY = FS_COMMON + `in vec3 vDir; layout(location=0) out vec4 oCol; layout(location=1) out vec4 oNrm; void main(){ vec3 d = normalize(vDir); oCol = vec4(finish(skyFull(d)), 1.0); oNrm = vec4(0.0, 0.0, 0.0, 1e4); }`;
 
 const FS_WATER = FS_COMMON + `
 in vec3 vW; in vec3 vN; in vec2 vUv; in vec4 vCol; flat in vec4 vMat; out vec4 oCol;
@@ -1918,7 +1960,7 @@ class Renderer {
   constructor(canvas, st) {
     this.canvas = canvas; this.st = st || settings;
     const q = QQ();
-    const g = canvas.getContext('webgl2', { antialias: !!this.st.aa && q.aa, alpha: false, depth: true, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: false, desynchronized: false });
+    const g = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: true, stencil: false, powerPreference: 'high-performance', preserveDrawingBuffer: false, desynchronized: false });
     if (!g) throw new Error('WebGL2 indisponível');
     gl = g; this.gl = g; this.q = q; this.tex = null; this.ready = false;
     g.getExtension('EXT_color_buffer_float'); g.getExtension('OES_texture_float_linear');
@@ -1927,13 +1969,14 @@ class Renderer {
     P('main', VS_MAIN, FS_MAIN, ''); P('inst', VS_MAIN, FS_MAIN, '#define INST\n'); P('terr', VS_MAIN, FS_MAIN, '#define TERRAIN\n#define NOBUMP\n');
     P('vm', VS_MAIN, FS_MAIN, '#define NOFOG\n'); P('shadow', VS_MAIN, FS_SHADOW, ''); P('shadowI', VS_MAIN, FS_SHADOW, '#define INST\n');
     P('sky', VS_SKY, FS_SKY, ''); P('water', VS_MAIN, FS_WATER, ''); P('part', VS_PART, FS_PART, ''); P('beam', VS_BEAM, FS_BEAM, '');
+    this._initPost();
     this.cloud = buildCloudTex(g);
     this.emptyVao = g.createVertexArray();
     /* sombra */
     this.dummyShadow = g.createTexture(); g.bindTexture(g.TEXTURE_2D, this.dummyShadow); g.texStorage2D(g.TEXTURE_2D, 1, g.DEPTH_COMPONENT24, 1, 1);
     g.texParameteri(g.TEXTURE_2D, g.TEXTURE_COMPARE_MODE, g.COMPARE_REF_TO_TEXTURE); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_COMPARE_FUNC, g.LEQUAL);
     this._initShadow();
-    this.shR = 60; this.shVP = new Float32Array(16); this.shPl = new Float32Array(24);
+    this.shR = q.shR || 60; this.shVP = new Float32Array(16); this.shPl = new Float32Array(24);
     /* matrizes */
     this.P = new Float32Array(16); this.V = new Float32Array(16); this.VP = new Float32Array(16); this.IVP = new Float32Array(16); this.pl = new Float32Array(24);
     this.vmP = new Float32Array(16); this.vmV = new Float32Array(16); this.vmVP = new Float32Array(16);
@@ -1968,7 +2011,7 @@ class Renderer {
     this.shFbo = g.createFramebuffer(); g.bindFramebuffer(g.FRAMEBUFFER, this.shFbo); g.framebufferTexture2D(g.FRAMEBUFFER, g.DEPTH_ATTACHMENT, g.TEXTURE_2D, this.shTex, 0);
     g.drawBuffers([g.NONE]); g.readBuffer(g.NONE); g.bindFramebuffer(g.FRAMEBUFFER, null);
   }
-  setQuality() { this.q = QQ(); this._initShadow(); this.resize(); }
+  setQuality() { this.q = QQ(); this.shR = this.q.shR || 60; this._initShadow(); this.resize(); }
   setEnv(e) { this.env = typeof e === 'string' ? ENVS[e] : e; }
   /* ----- cena estática ----- */
   buildScene(d) {
@@ -2023,6 +2066,7 @@ class Renderer {
       uFogD: this.fogD || e.fogD, uFogS: this.fogS || 0, uExp: e.exp, uSat: e.sat || 1.1, uShOn: (this.shOn && !vm && this.shReady) ? 1 : 0, uShBias: this.shBias || 0, uShTexel: 1 / (this.shSize || 1), uSh: this.shVP, uBump: .02,
       uCloudLight: e.cloudLight, uCloudDark: e.cloudDark, uCloudRange: [e.cloudLo, e.cloudHi] });
     g.uniform1i(p.loc('uTex'), 0); g.uniform1i(p.loc('uShadow'), 1); g.uniform1i(p.loc('uCloud'), 2);
+    this._v2Uniforms(p, vm);
   }
   _bindTex() {
     const g = this.gl; g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D_ARRAY, this.tex);
@@ -2034,6 +2078,7 @@ class Renderer {
   /* ----- quadro ----- */
   render(cam, opts) {
     const g = this.gl, S = this.scene, e = this.env; opts = opts || {}; this.cam = cam; this.stats.draws = 0; this.stats.tris = 0; if (!this.ready) return;
+    const tCpu = performance.now(); this.timer.poll();
     this.resize(); const W = this.w, H = this.h, asp = W / H, qd = this.q.dist * (this.st.viewDist || 1); this.qd = qd;
     /* alcance e névoa: a névoa só começa depois de fogS e chega a ~85% no limite de desenho; no alto (paraquedas/vaca) o alcance cresce */
     const altK = clamp(((cam.y || 0) - (this.groundY || 0) - 25) / 110, 0, 1), rm = 1 + altK * 1.3; this.rm = rm; this.cullD = 400 * qd * rm;
@@ -2049,7 +2094,7 @@ class Renderer {
     /* --- sombra --- */
     this.shReady = false;
     if (this.shOn && S && !opts.noShadow) {
-      this._shadowSetup(cam); const sp = this.prog.shadow, spi = this.prog.shadowI;
+      this.timer.begin('sombra'); this._shadowSetup(cam); const sp = this.prog.shadow, spi = this.prog.shadowI;
       g.bindFramebuffer(g.FRAMEBUFFER, this.shFbo); g.viewport(0, 0, this.shSize, this.shSize); g.clear(g.DEPTH_BUFFER_BIT); g.enable(g.DEPTH_TEST); g.depthMask(true); g.disable(g.BLEND); g.disable(g.CULL_FACE);
       g.enable(g.POLYGON_OFFSET_FILL); g.polygonOffset(1.5, 3);
       g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D_ARRAY, this.tex);
@@ -2059,10 +2104,12 @@ class Renderer {
       if (dynOn) this._draw(this.dynMesh);
       g.useProgram(spi.p);
       for (const m of S.inst) if (m.cast && aabbVisible(this.shPl, m.mn, m.mx) && dist2(cam.x, cam.z, (m.mn[0] + m.mx[0]) / 2, (m.mn[2] + m.mx[2]) / 2) < 70 * 70) { const mm = m.lod || m; g.bindVertexArray(mm.vao); g.drawElementsInstanced(g.TRIANGLES, mm.n, g.UNSIGNED_INT, 0, m.count); this.stats.draws++; }
-      g.disable(g.POLYGON_OFFSET_FILL); g.bindFramebuffer(g.FRAMEBUFFER, null); this.shReady = true;
+      g.disable(g.POLYGON_OFFSET_FILL); g.bindFramebuffer(g.FRAMEBUFFER, null); this.shReady = true; this.timer.end();
     }
     /* --- principal --- */
+    this._beginScene(W, H); this.timer.begin('cena');
     g.viewport(0, 0, W, H); g.clearColor(e.hor[0], e.hor[1], e.hor[2], 1); g.clear(g.COLOR_BUFFER_BIT | g.DEPTH_BUFFER_BIT);
+    if (this.postActive && this.pf.nrm) g.clearBufferfv(g.COLOR, 1, [0, 0, 0, 1e4]);
     g.enable(g.DEPTH_TEST); g.depthFunc(g.LEQUAL); g.depthMask(true); g.disable(g.BLEND); g.enable(g.CULL_FACE); g.cullFace(g.BACK);
     this._bindTex();
     /* céu */
@@ -2085,7 +2132,8 @@ class Renderer {
         }
         g.enable(g.CULL_FACE); }
     }
-    /* transparentes */
+    /* transparentes (não escrevem no buffer de normais) */
+    this._mrt(false);
     g.enable(g.BLEND); g.blendFunc(g.SRC_ALPHA, g.ONE_MINUS_SRC_ALPHA); g.depthMask(false);
     if (S) {
       { const p = this.prog.main; this._bindCommon(p, this.VP, false); g.disable(g.CULL_FACE);
@@ -2098,12 +2146,14 @@ class Renderer {
     this._drawParts();
     /* viewmodel */
     if (vmOn) {
-      g.depthMask(true); g.disable(g.BLEND); g.clear(g.DEPTH_BUFFER_BIT); const vc = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: opts.vmFov || 62 };
+      this._mrt(true); g.depthMask(true); g.disable(g.BLEND); g.clear(g.DEPTH_BUFFER_BIT); const vc = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, fov: opts.vmFov || 62 };
       this._cam(vc, asp, .015, 40, this.vmP, this.vmV, this.vmVP); const p = this.prog.vm;
       const sv = this.cam; this.cam = { x: 0, y: 0, z: 0 }; this._bindCommon(p, this.vmVP, true); this.cam = sv; p.set({ uBump: .012 });
       updateDyn(g, this.vmMesh, this.vmMB); g.disable(g.CULL_FACE); this._draw(this.vmMesh); g.enable(g.CULL_FACE);
     }
-    g.depthMask(true); g.disable(g.BLEND);
+    g.depthMask(true); g.disable(g.BLEND); this.timer.end();
+    if (this.postActive) this._post(W, H, cam.fov);
+    this.perf.cpu = this.perf.cpu * .9 + (performance.now() - tCpu) * .1;
   }
   /* partículas / feixes: dados em Float32Array de 12 floats por item */
   _uploadPB(b) { const g = this.gl; if (!b.n) return; g.bindBuffer(g.ARRAY_BUFFER, b.buf); g.bufferSubData(g.ARRAY_BUFFER, 0, b.data.subarray(0, b.n * 12)); }
@@ -2127,6 +2177,220 @@ class Renderer {
   }
   beginFrame() { this.dyn.reset(); this.vmMB.reset(); this.transMB.reset(); this.pbuf.alpha.n = 0; this.pbuf.add.n = 0; this.beamBuf.n = 0; }
 }
+
+/* ---- 13_post.js ---- */
+/* =====================================================================
+   13_post.js — RENDER V2 (Fase A): pós-processamento cartoon sobre o
+   renderizador WebGL2 próprio, sem trocar o pipeline existente.
+
+   Cena → FBO (cor HDR RGBA16F + normal/profundidade RGBA16F + depth)
+        → [Alto] oclusão ambiente em meia resolução (SAO simplificado)
+        → composição: contorno cartoon (profundidade + normais),
+          oclusão, tonemap ACES, saturação e gradação de cor
+        → FXAA → tela
+   Baixo / Muito baixo: desenha direto na tela como antes (toon + gradação
+   no próprio shader, custo extra ~zero).
+   Se o navegador não puder renderizar em float, cai sozinho para o
+   caminho direto (nada quebra).
+   Também mede tempo de GPU por passe (EXT_disjoint_timer_query_webgl2)
+   quando o navegador oferece, para o medidor de desempenho.
+   ===================================================================== */
+'use strict';
+const VS_FULL = `#version 300 es
+out vec2 vUv; void main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+const POST_HEAD = `#version 300 es
+precision highp float; precision highp sampler2D;
+float sstep(float a, float b, float x){ float t = clamp((x-a)/(b-a), 0.0, 1.0); return t*t*(3.0-2.0*t); }
+in vec2 vUv; out vec4 oCol;
+`;
+/* oclusão ambiente: hemisfério no espaço da câmera a partir da profundidade linear e da normal (8 amostras em espiral + ruído) */
+const FS_AO = POST_HEAD + `
+uniform sampler2D uN; uniform vec2 uTan; uniform float uR, uK; uniform vec2 uRes;
+vec3 vpos(vec2 uv, float z){ return vec3((uv * 2.0 - 1.0) * uTan * z, -z); }
+vec3 nrm(vec4 n){ return vec3(n.xy, sqrt(max(0.0, 1.0 - dot(n.xy, n.xy)))); }
+void main(){
+  vec4 n0 = texture(uN, vUv); float z = n0.w;
+  if (n0.z < 0.85 || z > 90.0 || z < 0.3) { oCol = vec4(1.0); return; }
+  vec3 P = vpos(vUv, z), N = nrm(n0);
+  float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  float rUv = uR / (2.0 * z * uTan.y), asp = uTan.y / uTan.x, sum = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float t = (float(i) + 0.5) / 8.0, a = (float(i) * 2.399 + noise * 6.283);
+    vec2 uv = vUv + vec2(cos(a) * asp, sin(a)) * rUv * t; vec4 ns = texture(uN, uv); if (ns.z < 0.01) continue;
+    vec3 v = vpos(uv, ns.w) - P; float d2 = dot(v, v);
+    sum += max(0.0, dot(v, N) - 0.015 * z) / (d2 + 0.02) * (1.0 - sstep(uR * uR * 0.6, uR * uR * 2.2, d2));
+  }
+  float ao = clamp(1.0 - uK * sum * uR / 8.0, 0.0, 1.0);
+  oCol = vec4(mix(ao, 1.0, sstep(45.0, 90.0, z)));
+}`;
+/* composição: contorno + oclusão + tonemap + gradação */
+const FS_COMP = POST_HEAD + `
+uniform sampler2D uC, uN, uAO; uniform vec2 uPx, uAoPx; uniform float uOut, uOutW, uAoOn, uAoK, uHdr, uExp, uSat, uGrade, uOutK;
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+vec3 grade(vec3 c, float k){
+  float l = dot(c, vec3(.299,.587,.114));
+  c += vec3(-0.012, 0.0, 0.035) * (1.0 - sstep(0.0, 0.5, l)) * k;
+  c += vec3(0.018, 0.008, -0.016) * sstep(0.5, 1.0, l) * k;
+  c = mix(c, c*c*(3.0-2.0*c), 0.16*k);
+  float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+  c = mix(vec3(l), c, 1.0 + 0.14*k*(1.0 - (mx - mn)));
+  return clamp(c, 0.0, 1.0);
+}
+vec3 nrm(vec4 n){ return vec3(n.xy, sqrt(max(0.0, 1.0 - dot(n.xy, n.xy)))); }
+void main(){
+  vec3 c = texture(uC, vUv).rgb; vec4 n0 = texture(uN, vUv); float z0 = n0.w, f0 = n0.z;
+  /* oclusão ambiente (borrão 5 amostras que respeita a profundidade) */
+  if (uAoOn > 0.5 && f0 > 0.85) {
+    float s = texture(uAO, vUv).r, w = 1.0;
+    for (int i = 0; i < 4; i++) { vec2 o = vec2(i < 2 ? (i == 0 ? -1.0 : 1.0) : 0.0, i >= 2 ? (i == 2 ? -1.0 : 1.0) : 0.0) * uAoPx * 1.5; float zz = texture(uN, vUv + o).w, ww = 1.0 - sstep(0.02, 0.08, abs(zz - z0) / max(z0, 0.1)); s += texture(uAO, vUv + o).r * ww; w += ww; }
+    c *= mix(1.0, s / w, uAoK);
+  }
+  /* contorno cartoon: só na borda do objeto MAIS PRÓXIMO (profundidade) e em quinas vivas (normais) */
+  if (uOut > 0.5 && f0 > 0.01) {
+    float e = 0.0; vec3 a = nrm(n0); bool vm = f0 > 0.7 && f0 < 0.8, ter = f0 > 0.85 && f0 < 0.95;
+    for (int i = 0; i < 8; i++) {
+      /* 8 vizinhos (cruz + diagonais) → traço contínuo, sem pontilhado nas bordas inclinadas */
+      vec2 dd = i < 4 ? vec2(i == 0 ? -1.0 : i == 1 ? 1.0 : 0.0, i == 2 ? -1.0 : i == 3 ? 1.0 : 0.0) : vec2(i == 4 || i == 6 ? -0.72 : 0.72, i < 6 ? -0.72 : 0.72);
+      vec2 o = dd * uPx * uOutW;
+      vec4 n = texture(uN, vUv + o); float dz = (n.w - z0) / max(z0, 0.05);
+      bool nter = n.z > 0.85 && n.z < 0.95;
+      float th = vm ? 0.18 : (ter && nter ? 0.3 : 0.045 + z0 * 0.0006);
+      float de = sstep(th, th * 1.8, dz);
+      float ne = 0.0;
+      if (!ter && f0 > 0.7 && n.z > 0.7 && !nter && abs(n.w - z0) / max(z0, 0.05) < 0.04) ne = sstep(0.55, 0.3, dot(a, nrm(n)));
+      e = max(e, max(de, ne * 0.75));
+    }
+    float k = (f0 < 0.6 ? 0.3 : ter ? 0.6 : 1.0) * (vm ? 1.0 : 1.0 - sstep(60.0, 170.0, z0));
+    c = mix(c, c * 0.16, clamp(e * k * uOutK, 0.0, 1.0));
+  }
+  if (uHdr > 0.5) { c = aces(c); c = pow(c, vec3(1.0/2.2)); float l = dot(c, vec3(.299,.587,.114)); c = mix(vec3(l), c, uSat); c = grade(c, uGrade); }
+  oCol = vec4(c, dot(c, vec3(0.299, 0.587, 0.114)));
+}`;
+/* FXAA (variante compacta do FXAA 3.x: redução de borda por luma, 2 amostras ao longo da direção) */
+const FS_FXAA = POST_HEAD + `
+uniform sampler2D uL; uniform vec2 uPx;
+void main(){
+  vec3 rgbM = texture(uL, vUv).rgb;
+  float lNW = texture(uL, vUv + vec2(-1.0, -1.0) * uPx).a, lNE = texture(uL, vUv + vec2(1.0, -1.0) * uPx).a;
+  float lSW = texture(uL, vUv + vec2(-1.0, 1.0) * uPx).a, lSE = texture(uL, vUv + vec2(1.0, 1.0) * uPx).a, lM = dot(rgbM, vec3(0.299, 0.587, 0.114));
+  float mn = min(lM, min(min(lNW, lNE), min(lSW, lSE))), mx = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+  if (mx - mn < max(0.0312, mx * 0.125)) { oCol = vec4(rgbM, 1.0); return; }
+  vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), ((lNW + lSW) - (lNE + lSE)));
+  float red = max((lNW + lNE + lSW + lSE) * 0.03125, 1.0 / 128.0), rcp = 1.0 / (min(abs(dir.x), abs(dir.y)) + red);
+  dir = clamp(dir * rcp, -8.0, 8.0) * uPx;
+  vec3 A = 0.5 * (texture(uL, vUv + dir * (1.0/3.0 - 0.5)).rgb + texture(uL, vUv + dir * (2.0/3.0 - 0.5)).rgb);
+  vec3 B = A * 0.5 + 0.25 * (texture(uL, vUv - dir * 0.5).rgb + texture(uL, vUv + dir * 0.5).rgb);
+  float lB = dot(B, vec3(0.299, 0.587, 0.114));
+  oCol = vec4((lB < mn || lB > mx) ? A : B, 1.0);
+}`;
+
+/* ---------- cronômetro de GPU por passe (quando o navegador permite) ---------- */
+class GpuTimer {
+  constructor(g) { this.g = g; this.ext = g.getExtension('EXT_disjoint_timer_query_webgl2'); this.pend = []; this.cur = null; this.ms = {}; this.acc = {}; this.n = 0; }
+  /* sem a extensão: modo de diagnóstico (window.__syncT) mede com gl.finish() — só para testes, trava o pipeline */
+  begin(name) { if (this.cur) return; if (!this.ext) { if (window.__syncT) { this.g.finish(); this.cur = { name, t0: performance.now() }; } return; } const q = this.g.createQuery(); this.g.beginQuery(this.ext.TIME_ELAPSED_EXT, q); this.cur = { q, name }; }
+  end() { if (!this.cur) return; if (!this.ext) { this.g.finish(); const ms = performance.now() - this.cur.t0; (this.sync || (this.sync = {}))[this.cur.name] = ms; this.cur = null; return; } this.g.endQuery(this.ext.TIME_ELAPSED_EXT); this.pend.push(this.cur); this.cur = null; }
+  poll() {
+    if (!this.ext) return; const g = this.g, dis = g.getParameter(this.ext.GPU_DISJOINT_EXT);
+    while (this.pend.length) {
+      const p = this.pend[0]; if (!g.getQueryParameter(p.q, g.QUERY_RESULT_AVAILABLE)) break; this.pend.shift();
+      if (!dis) { const ms = g.getQueryParameter(p.q, g.QUERY_RESULT) / 1e6; this.acc[p.name] = (this.acc[p.name] || 0) * .9 + ms * .1; }
+      g.deleteQuery(p.q);
+    }
+    if (this.pend.length > 60) { for (const p of this.pend) g.deleteQuery(p.q); this.pend.length = 0; }
+  }
+}
+
+/* ---------- configuração efetiva do pós (preset + opções do jogador) ---------- */
+function postCfg(q, st) {
+  const pick = (v, auto) => (v === 'on' ? true : v === 'off' ? false : auto);
+  const post = (q.post | 0) > 0;
+  return { post, outline: post && pick(st.outline, !!q.outline), ao: post && pick(st.ao, !!q.ao), fxaa: post, toon: st.toon !== false };
+}
+
+Object.assign(Renderer.prototype, {
+  _initPost() {
+    const g = this.gl;
+    this.floatOk = !!g.getExtension('EXT_color_buffer_float');
+    try {
+      this.prog.ao = compileProg(g, 'ao', VS_FULL.replace('#version 300 es\n', ''), FS_AO.replace('#version 300 es\n', ''), '');
+      this.prog.comp = compileProg(g, 'comp', VS_FULL.replace('#version 300 es\n', ''), FS_COMP.replace('#version 300 es\n', ''), '');
+      this.prog.fxaa = compileProg(g, 'fxaa', VS_FULL.replace('#version 300 es\n', ''), FS_FXAA.replace('#version 300 es\n', ''), '');
+      this.postOk = this.floatOk;
+    } catch (e) { console.warn('pós-processamento indisponível', e); this.postOk = false; }
+    this.timer = new GpuTimer(g); this.pf = { w: 0, h: 0 }; this.perf = { cpu: 0, frames: 0 };
+  },
+  _tex(fmt, w, h, filt) {
+    const g = this.gl, t = g.createTexture(); g.bindTexture(g.TEXTURE_2D, t); g.texStorage2D(g.TEXTURE_2D, 1, fmt, w, h);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, filt); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, filt);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE); return t;
+  },
+  _freePost() {
+    const g = this.gl, F = this.pf; if (!F.fb) return;
+    for (const t of [F.col, F.nrm, F.ldr, F.ao]) if (t) g.deleteTexture(t); if (F.dep) g.deleteRenderbuffer(F.dep);
+    for (const f of [F.fb, F.fbL, F.fbA]) if (f) g.deleteFramebuffer(f); this.pf = { w: 0, h: 0 };
+  },
+  /* cria/recria os alvos quando o tamanho ou o preset muda */
+  _ensurePost(W, H, C) {
+    const key = W + 'x' + H + (C.outline || C.ao ? 'N' : '') + (C.ao ? 'A' : ''); if (this.pf.key === key) return this.pf.ok;
+    this._freePost(); const g = this.gl, F = this.pf = { w: W, h: H, key, needN: C.outline || C.ao };
+    F.col = this._tex(g.RGBA16F, W, H, g.NEAREST);
+    if (F.needN) F.nrm = this._tex(g.RGBA16F, W, H, g.NEAREST);
+    F.dep = g.createRenderbuffer(); g.bindRenderbuffer(g.RENDERBUFFER, F.dep); g.renderbufferStorage(g.RENDERBUFFER, g.DEPTH_COMPONENT24, W, H);
+    F.fb = g.createFramebuffer(); g.bindFramebuffer(g.FRAMEBUFFER, F.fb);
+    g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, F.col, 0); if (F.nrm) g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT1, g.TEXTURE_2D, F.nrm, 0);
+    g.framebufferRenderbuffer(g.FRAMEBUFFER, g.DEPTH_ATTACHMENT, g.RENDERBUFFER, F.dep);
+    F.ok = g.checkFramebufferStatus(g.FRAMEBUFFER) === g.FRAMEBUFFER_COMPLETE;
+    F.ldr = this._tex(g.RGBA8, W, H, g.LINEAR); F.fbL = g.createFramebuffer(); g.bindFramebuffer(g.FRAMEBUFFER, F.fbL); g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, F.ldr, 0);
+    if (C.ao) { F.aw = Math.max(1, W >> 1); F.ah = Math.max(1, H >> 1); F.ao = this._tex(g.R8, F.aw, F.ah, g.LINEAR); F.fbA = g.createFramebuffer(); g.bindFramebuffer(g.FRAMEBUFFER, F.fbA); g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, F.ao, 0); }
+    g.bindFramebuffer(g.FRAMEBUFFER, null);
+    /* memória de vídeo dos alvos (aprox.) */
+    F.bytes = W * H * (8 + (F.nrm ? 8 : 0) + 4 + 4) + (F.ao ? F.aw * F.ah : 0);
+    if (!F.ok) { console.warn('FBO do pós incompleto — voltando ao caminho direto'); this.postOk = false; }
+    return F.ok;
+  },
+  /* chamado no começo do quadro principal: decide o caminho e liga o FBO */
+  _beginScene(W, H) {
+    const C = this.pc = postCfg(this.q, this.st); this.postActive = !!(C.post && this.postOk && this._ensurePost(W, H, C));
+    const g = this.gl;
+    if (this.postActive) {
+      g.bindFramebuffer(g.FRAMEBUFFER, this.pf.fb); g.drawBuffers(this.pf.nrm ? [g.COLOR_ATTACHMENT0, g.COLOR_ATTACHMENT1] : [g.COLOR_ATTACHMENT0]);
+      if (this.pf.nrm) g.clearBufferfv(g.COLOR, 1, [0, 0, 0, 1e4]);
+    } else g.bindFramebuffer(g.FRAMEBUFFER, null);
+  },
+  _mrt(on) { if (!this.postActive || !this.pf.nrm) return; const g = this.gl; g.drawBuffers(on ? [g.COLOR_ATTACHMENT0, g.COLOR_ATTACHMENT1] : [g.COLOR_ATTACHMENT0, g.NONE]); },
+  /* uniforms do Render v2 comuns a todos os programas da cena */
+  _v2Uniforms(p, vm) {
+    const e = this.env, C = this.pc || postCfg(this.q, this.st), V = this.V;
+    const R = vm ? [1, 0, 0] : [V[0], V[4], V[8]], U = vm ? [0, 1, 0] : [V[1], V[5], V[9]], F = vm ? [0, 0, -1] : [-V[2], -V[6], -V[10]];
+    p.set({ uHdr: this.postActive ? 1 : 0, uToon: C.toon ? 1 : 0, uRim: vm ? .25 : .45, uGrade: 1, uVmFlag: vm ? 1 : 0, uShSpread: this.q.shSpread || 1,
+      uShTint: e.shTint || [.8, .92, 1.3], uLiTint: e.liTint || [1.04, 1.0, .93], uVR: R, uVU: U, uFwd: F });
+  },
+  /* passes de pós: AO → composição → FXAA */
+  _post(W, H, fov) {
+    const g = this.gl, F = this.pf, C = this.pc, e = this.env; this.timer.begin('pós');
+    g.disable(g.DEPTH_TEST); g.disable(g.BLEND); g.disable(g.CULL_FACE); g.depthMask(false); g.bindVertexArray(this.emptyVao);
+    const tanY = Math.tan(fov * DEG / 2), tanX = tanY * W / H;
+    if (C.ao && F.ao) {
+      g.bindFramebuffer(g.FRAMEBUFFER, F.fbA); g.viewport(0, 0, F.aw, F.ah); const p = this.prog.ao; g.useProgram(p.p);
+      g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, F.nrm); g.uniform1i(p.loc('uN'), 0); p.set({ uTan: [tanX, tanY], uR: 1.0, uK: 1.7, uRes: [F.aw, F.ah] }); g.drawArrays(g.TRIANGLES, 0, 3);
+    }
+    g.bindFramebuffer(g.FRAMEBUFFER, F.fbL); g.viewport(0, 0, W, H);
+    { const p = this.prog.comp; g.useProgram(p.p);
+      g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, F.col); g.activeTexture(g.TEXTURE1); g.bindTexture(g.TEXTURE_2D, F.nrm || F.col); g.activeTexture(g.TEXTURE2); g.bindTexture(g.TEXTURE_2D, F.ao || F.col);
+      g.uniform1i(p.loc('uC'), 0); g.uniform1i(p.loc('uN'), 1); g.uniform1i(p.loc('uAO'), 2);
+      p.set({ uPx: [1 / W, 1 / H], uAoPx: [2 / W, 2 / H], uOut: C.outline && F.nrm ? 1 : 0, uOutW: Math.max(1.5, H / 520), uOutK: .9, uAoOn: C.ao && F.ao ? 1 : 0, uAoK: .85, uHdr: 1, uExp: e.exp, uSat: e.sat || 1.1, uGrade: 1 });
+      g.drawArrays(g.TRIANGLES, 0, 3); }
+    g.bindFramebuffer(g.FRAMEBUFFER, null); g.viewport(0, 0, W, H);
+    { const p = this.prog.fxaa; g.useProgram(p.p); g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, F.ldr); g.uniform1i(p.loc('uL'), 0); p.set({ uPx: [1 / W, 1 / H] }); g.drawArrays(g.TRIANGLES, 0, 3); }
+    g.activeTexture(g.TEXTURE0); g.depthMask(true); g.enable(g.DEPTH_TEST); g.enable(g.CULL_FACE); this.timer.end();
+  },
+  /* resumo para o medidor de desempenho */
+  perfInfo() {
+    const t = this.timer, C = this.pc || {}, mem = (this.pf && this.pf.bytes && this.postActive ? this.pf.bytes : 0) + (this.shOn ? this.shSize * this.shSize * 4 : 0) + 256 * 256 * 4 * 37 * 1.34;
+    return { gpu: t.ext ? t.acc : null, draws: this.stats.draws, tris: this.stats.tris, w: this.w, h: this.h, vram: mem, path: this.postActive ? ('pós' + (C.outline ? '+contorno' : '') + (C.ao ? '+AO' : '') + '+FXAA') : 'direto', heap: (performance.memory && performance.memory.usedJSHeapSize) || 0 };
+  }
+});
 
 /* ---- 20_mapkit.js ---- */
 /* =====================================================================
@@ -3780,7 +4044,7 @@ Renderer.prototype.renderIcon = function (draw, o) {
   g.enable(g.DEPTH_TEST); g.depthFunc(g.LEQUAL); g.depthMask(true); g.disable(g.BLEND); g.disable(g.CULL_FACE);
   const svC = this.cam, svS = this.shReady, svE = this.env; this.cam = { x: eye[0], y: eye[1], z: eye[2] }; this.shReady = false; this.env = ENVS.dia;
   this._bindTex(); const p = this.prog.vm; this._bindCommon(p, VP, false);
-  p.set({ uSunDir: norm3([-.45, .8, .55]), uSunCol: [2.7, 2.55, 2.3], uAmbS: [.78, .84, .98], uAmbG: [.5, .44, .38], uExp: 1.0, uBump: .008, uSat: 1.18 });
+  p.set({ uHdr: 0, uVmFlag: 0, uSunDir: norm3([-.45, .8, .55]), uSunCol: [2.7, 2.55, 2.3], uAmbS: [.78, .84, .98], uAmbG: [.5, .44, .38], uExp: 1.0, uBump: .008, uSat: 1.18 });
   this._draw(this._icoMesh);
   g.readPixels(0, 0, w, h, g.RGBA, g.UNSIGNED_BYTE, F.px);
   this.cam = svC; this.shReady = svS; this.env = svE; g.bindFramebuffer(g.FRAMEBUFFER, null); g.enable(g.CULL_FACE); g.viewport(0, 0, this.w, this.h);
@@ -6860,7 +7124,7 @@ const UI = {
     const chk = (k, label) => `<label class="chk"><input type="checkbox" data-k="${k}" ${settings[k] ? 'checked' : ''}> ${label}</label>`;
     const pct = v => Math.round(v * 100) + '%', fx2 = v => (+v).toFixed(2);
     const tabs = {
-      gfx: seg('quality', 'Qualidade gráfica', [['muito_baixo', 'Muito baixo'], ['baixo', 'Baixo'], ['medio', 'Médio'], ['alto', 'Alto']]) + chk('perfMode', 'Modo desempenho (força o mínimo, ideal para PC fraco)') + seg('fpsCap', 'Limite de FPS', [[30, '30'], [60, '60'], [120, '120'], [0, 'Livre']]) + seg('shadowQ', 'Qualidade das sombras', [['auto', 'Auto'], [0, 'Desligadas'], [1024, 'Média'], [2048, 'Alta']]) + rng('renderScale', 'Escala de renderização', .5, 1.5, .05, pct) + rng('viewDist', 'Distância de visão', .5, 1.5, .05, pct) + rng('grass', 'Densidade do mato', 0, 1.5, .05, pct) + rng('particles', 'Qualidade dos efeitos', 0, 1.5, .1, pct) + rng('fov', 'Campo de visão (FOV)', 70, 110, 1, v => v + '°') + chk('showFps', 'Mostrar FPS') + chk('showPing', 'Mostrar ping e perda de pacotes'),
+      gfx: seg('quality', 'Qualidade gráfica', [['muito_baixo', 'Muito baixo'], ['baixo', 'Baixo'], ['medio', 'Médio'], ['alto', 'Alto']]) + chk('perfMode', 'Modo desempenho (força o mínimo, ideal para PC fraco)') + seg('fpsCap', 'Limite de FPS', [[30, '30'], [60, '60'], [120, '120'], [0, 'Livre']]) + seg('shadowQ', 'Qualidade das sombras', [['auto', 'Auto'], [0, 'Desligadas'], [1024, 'Média'], [2048, 'Alta']]) + seg('outline', 'Contornos cartoon', [['auto', 'Auto (Alto)'], ['on', 'Ligados'], ['off', 'Desligados']]) + seg('ao', 'Oclusão ambiente', [['auto', 'Auto (Alto)'], ['on', 'Ligada'], ['off', 'Desligada']]) + chk('toon', 'Iluminação cartoon (luz em faixas, sombra fria)') + rng('renderScale', 'Escala de renderização', .5, 1.5, .05, pct) + rng('viewDist', 'Distância de visão', .5, 1.5, .05, pct) + rng('grass', 'Densidade do mato', 0, 1.5, .05, pct) + rng('particles', 'Qualidade dos efeitos', 0, 1.5, .1, pct) + rng('fov', 'Campo de visão (FOV)', 70, 110, 1, v => v + '°') + chk('showFps', 'Mostrar FPS') + chk('perfHud', 'Medidor de desempenho detalhado (GPU por passe, chamadas, memória)') + chk('showPing', 'Mostrar ping e perda de pacotes'),
       ctl: rng('sens', 'Sensibilidade do mouse', .2, 3, .05, fx2) + rng('adsSens', 'Sensibilidade ao mirar', .3, 1.5, .05, fx2) + rng('padSens', 'Sensibilidade do controle (USB/Bluetooth)', .3, 2.5, .05, fx2) + chk('invertY', 'Inverter eixo Y') + rng('bobbing', 'Balanço da arma/câmera', 0, 1.5, .1, pct) + rng('cameraShake', 'Tremor de câmera', 0, 1.5, .1, pct) +
         `<h3>Teclas (clique para trocar)</h3>${Rebind.table()}<p style="font-size:13px;opacity:.75">Controle: LS move · RS mira · RT atira · LT mira · A pula · B agacha · X recarrega · Y primária · RB interage · LB ovo · ↑ cura · ↓ loja/mochila · ← → armas · Start pausa · Select placar.</p>`,
       touch: rng('touchSize', 'Tamanho dos botões', .6, 1.6, .05, pct) + rng('touchAlpha', 'Transparência', .2, 1, .05, pct) + rng('touchSens', 'Sensibilidade da câmera (toque)', .3, 3, .05, fx2) + `<div class="row" style="margin-top:8px"><button class="btn s" id="tcEdit">Editar posição dos botões</button><button class="btn s" id="tcReset">Posições padrão</button></div><p style="font-size:13px;opacity:.75">${IS_TOUCH ? 'Tela de toque detectada.' : 'Sem tela de toque neste aparelho — estas opções valem no celular.'} Jogue com o celular na horizontal.</p>`,
@@ -7519,6 +7783,66 @@ const Presence = {
   },
   add(tot, code, c) { tot.humans += c.humans | 0; tot.waiting += c.waiting | 0; tot.playing += c.playing | 0; tot.bots += c.bots | 0; tot.rooms.push({ code, names: c.names || [], mode: c.mode }); },
   start() { this.scan(); setInterval(() => this.scan(), 30000); }
+};
+
+/* ---- 59_perf.js ---- */
+/* =====================================================================
+   59_perf.js — medidor de desempenho e benchmark (Render v2)
+   • Configurações → Gráficos → "Medidor de desempenho detalhado" (ou ?perf=1)
+     mostra FPS, tempo de quadro (média / p95 / pior), tempo de CPU do
+     render, tempo de GPU por passe (sombra, cena, pós) quando o navegador
+     expõe EXT_disjoint_timer_query_webgl2, chamadas de desenho, triângulos,
+     resolução, caminho de render, memória de vídeo estimada e heap JS.
+   • ?bench=1 (com ?auto=caos ou tatico): percorre os presets Alto, Médio,
+     Baixo e Muito baixo no mesmo ponto do mapa (câmera girando devagar) e
+     mostra uma tabela comparativa — serve para medir no SEU hardware.
+   ===================================================================== */
+'use strict';
+const PerfHud = {
+  ft: new Float32Array(240), fi: 0, fn: 0, t: 0, el: null,
+  tick(dt) { const now = performance.now(); dt = this.last ? (now - this.last) / 1000 : dt; this.last = now; this.ft[this.fi] = dt * 1000; this.fi = (this.fi + 1) % this.ft.length; this.fn = Math.min(this.fn + 1, this.ft.length); this.t += dt; if (this.t > .25) { this.t = 0; this.draw(); } if (this.bench) this.benchTick(dt); },
+  stats() {
+    const n = this.fn; if (!n) return { avg: 0, p95: 0, max: 0, fps: 0 }; const a = Array.from(this.ft.subarray(0, n)).sort((x, y) => x - y);
+    const avg = a.reduce((s, v) => s + v, 0) / n; return { avg, p95: a[Math.min(n - 1, Math.floor(n * .95))], max: a[n - 1], fps: 1000 / avg };
+  },
+  on() { return settings.perfHud || QS.get('perf') === '1' || !!this.bench; },
+  draw() {
+    let el = this.el; if (!this.on()) { if (el) el.style.display = 'none'; return; }
+    if (!el) { el = this.el = document.createElement('div'); el.id = 'perfhud'; document.body.appendChild(el); }
+    el.style.display = 'block'; const R = G.R; if (!R) return; const s = this.stats(), I = R.perfInfo(), mb = b => (b / 1048576).toFixed(0) + ' MB';
+    const gpu = I.gpu ? Object.entries(I.gpu).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(' · ') + ' ms' : 'indisponível neste navegador';
+    el.innerHTML = `<b>${s.fps.toFixed(0)} FPS</b> · quadro ${s.avg.toFixed(1)} ms (p95 ${s.p95.toFixed(1)}, pior ${s.max.toFixed(1)})<br>CPU render ${R.perf.cpu.toFixed(2)} ms · GPU: ${gpu}<br>`
+      + `${I.draws} chamadas · ${(I.tris / 1000).toFixed(0)} mil triângulos · ${I.w}×${I.h} · ${esc(QUALITY[effQuality()].name)} (${I.path})<br>VRAM estimada ${mb(I.vram)}${I.heap ? ' · heap JS ' + mb(I.heap) : ''}`
+      + (this.res ? `<hr>${this.res}` : '');
+  },
+  /* ---------- benchmark ---------- */
+  startBench() {
+    if (this.bench || G.scene !== 'play') return; const keep = { quality: settings.quality, perfMode: settings.perfMode, fpsCap: settings.fpsCap, outline: settings.outline, ao: settings.ao };
+    settings.perfMode = false; settings.fpsCap = 0;
+    this.bench = { keep, list: [['alto', 'auto', 'auto', 'Alto'], ['alto', 'off', 'auto', 'Alto sem contorno'], ['alto', 'auto', 'off', 'Alto sem AO'], ['medio', 'auto', 'auto', 'Médio'], ['baixo', 'auto', 'auto', 'Baixo'], ['muito_baixo', 'auto', 'auto', 'Muito baixo']], i: -1, t: 0, out: [], warm: 2, dur: +(QS.get('bdur') || 8) };
+    this.nextPreset();
+  },
+  nextPreset() {
+    const B = this.bench; B.i++; if (B.i >= B.list.length) return this.endBench();
+    const L = B.list[B.i]; settings.quality = L[0]; settings.outline = L[1]; settings.ao = L[2]; B.name = L[3]; applySettings('quality'); B.t = 0; B.n = 0; B.sum = 0; B.arr = []; B.gpu = {}; B.gn = 0; B.dr = 0; B.tr = 0;
+  },
+  benchTick(dt) {
+    const B = this.bench; B.t += dt; G.view.yaw += dt * .35; G.syncView = true;
+    if (B.t < B.warm) return;
+    B.n++; B.sum += dt; B.arr.push(dt * 1000); const I = G.R.perfInfo(); B.dr += I.draws; B.tr += I.tris;
+    if (I.gpu) { for (const k in I.gpu) B.gpu[k] = (B.gpu[k] || 0) + I.gpu[k]; B.gn++; }
+    if (B.t >= B.warm + B.dur) {
+      const a = B.arr.sort((x, y) => x - y), avg = B.sum / B.n * 1000;
+      B.out.push({ q: B.name, fps: 1000 / avg, avg, p95: a[Math.floor(a.length * .95)], draws: B.dr / B.n, tris: B.tr / B.n, gpu: B.gn ? Object.fromEntries(Object.entries(B.gpu).map(([k, v]) => [k, v / B.gn])) : null, res: I.w + '×' + I.h, path: I.path, vram: I.vram });
+      this.nextPreset();
+    }
+  },
+  endBench() {
+    const B = this.bench; Object.assign(settings, B.keep); applySettings('quality'); this.bench = null;
+    const rows = B.out.map(r => `<tr><td>${r.q}</td><td>${r.fps.toFixed(0)}</td><td>${r.avg.toFixed(1)}</td><td>${r.p95.toFixed(1)}</td><td>${r.gpu ? Object.values(r.gpu).reduce((s, v) => s + v, 0).toFixed(2) : '—'}</td><td>${r.draws.toFixed(0)}</td><td>${(r.tris / 1000).toFixed(0)}k</td><td>${r.res}</td><td>${(r.vram / 1048576).toFixed(0)} MB</td></tr>`).join('');
+    this.res = `<b>Benchmark</b><table><tr><th>Preset</th><th>FPS</th><th>ms</th><th>p95</th><th>GPU ms</th><th>chamadas</th><th>tri</th><th>res.</th><th>VRAM</th></tr>${rows}</table>`;
+    window.__bench = B.out; console.log('BENCH ' + JSON.stringify(B.out)); this.draw();
+  }
 };
 
 /* ---- 60_game.js ---- */
@@ -8302,7 +8626,7 @@ function frame(ts) {
   G.rdt = (G.rdt || 0) + dt0; const cap = +settings.fpsCap || 0;
   if (cap && G.rdt < 1 / cap - 0.004) return;           /* limite de FPS: pula o desenho, a simulação continua */
   const dt = Math.min(G.rdt, .25); G.rdt = 0;
-  G.fpsAcc += dt; G.fpsN++; if (G.fpsAcc > .5) { G.fps = G.fpsN / G.fpsAcc; G.fpsAcc = 0; G.fpsN = 0; }
+  G.fpsAcc += dt; G.fpsN++; if (G.fpsAcc > .5) { G.fps = G.fpsN / G.fpsAcc; G.fpsAcc = 0; G.fpsN = 0; } PerfHud.tick(dt);
   try { renderFrame(dt); } catch (e) { if (!G.errShown) { G.errShown = true; console.error(e); UI.toast('Erro: ' + (e && e.message || e), 6000); } }
 }
 function startMetronome() {
@@ -8347,6 +8671,7 @@ async function boot() {
   const ld = $('loading'); ld.classList.add('fade'); setTimeout(() => ld.classList.add('hidden'), 700);
   const code = (QS.get('sala') || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.length >= 3) setTimeout(() => UI.joinModal(code), 600);
   const auto = QS.get('auto'); if (auto) setTimeout(() => Game.startOffline({ mode: auto, botLevel: QS.get('lv') || 'normal' }), 400);
+  if (QS.get('bench') === '1') { const wb = setInterval(() => { if (G.scene === 'play' && G.me) { clearInterval(wb); setTimeout(() => PerfHud.startBench(), 1500); } }, 500); }
 }
 function wireUI() {
   UI.on.offline = o => Game.startOffline(o);

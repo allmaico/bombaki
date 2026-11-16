@@ -321,7 +321,7 @@ Renderer.prototype.renderIcon = function (draw, o) {
   g.enable(g.DEPTH_TEST); g.depthFunc(g.LEQUAL); g.depthMask(true); g.disable(g.BLEND); g.disable(g.CULL_FACE);
   const svC = this.cam, svS = this.shReady, svE = this.env; this.cam = { x: eye[0], y: eye[1], z: eye[2] }; this.shReady = false; this.env = ENVS.dia;
   this._bindTex(); const p = this.prog.vm; this._bindCommon(p, VP, false);
-  p.set({ uSunDir: norm3([-.45, .8, .55]), uSunCol: [2.7, 2.55, 2.3], uAmbS: [.78, .84, .98], uAmbG: [.5, .44, .38], uExp: 1.0, uBump: .008, uSat: 1.18 });
+  p.set({ uHdr: 0, uVmFlag: 0, uSunDir: norm3([-.45, .8, .55]), uSunCol: [2.7, 2.55, 2.3], uAmbS: [.78, .84, .98], uAmbG: [.5, .44, .38], uExp: 1.0, uBump: .008, uSat: 1.18 });
   this._draw(this._icoMesh);
   g.readPixels(0, 0, w, h, g.RGBA, g.UNSIGNED_BYTE, F.px);
   this.cam = svC; this.shReady = svS; this.env = svE; g.bindFramebuffer(g.FRAMEBUFFER, null); g.enable(g.CULL_FACE); g.viewport(0, 0, this.w, this.h);

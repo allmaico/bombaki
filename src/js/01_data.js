@@ -2,7 +2,7 @@
    01_data.js — constantes, armas, personagens, itens, modos, textos
    ===================================================================== */
 'use strict';
-const VERSION = '5.0.0';
+const VERSION = '5.1.0';
 const DISCORD_URL = 'https://discord.gg/';           // troque pelo convite do seu servidor
 const ONLINE_DEMO = false;                            // true = contador "Jogadores Online" ILUSTRATIVO (igual à arte). false = mostra só os humanos da sala atual (sem servidor central não existe contagem global real)
 const DT = 1 / 60;                                  // passo fixo da simulação
@@ -154,10 +154,11 @@ const COUNTDOWN_FULL = 120;       // contagem regressiva (s) quando atinge o mí
 const COUNTDOWN_FILL = 20;        // contagem curta quando há ≥2 humanos e bots completam as vagas
 const BOT_LEVELS = { facil: { name: 'Fácil', react: .62, aim: 3.4, err: 3.2, burst: .6, grenade: .1 }, normal: { name: 'Normal', react: .42, aim: 5.2, err: 1.9, burst: 1, grenade: .3 }, dificil: { name: 'Difícil', react: .28, aim: 7.5, err: 1.0, burst: 1.4, grenade: .55 }, insano: { name: 'Insano', react: .16, aim: 11, err: .5, burst: 2, grenade: .8 } };
 const QUALITY = {
-  muito_baixo: { name: 'Muito baixo', scale: .55, shadow: 0, dist: .45, grass: .1, parts: .3, aa: false, terrLod: 34, lodDist: 30 },
-  baixo: { name: 'Baixo', scale: .7, shadow: 0, dist: .6, grass: .25, parts: .5, aa: false, terrLod: 44, lodDist: 38 },
-  medio: { name: 'Médio', scale: .85, shadow: 1024, dist: .8, grass: .55, parts: .75, aa: true, terrLod: 56, lodDist: 48 },
-  alto: { name: 'Alto', scale: 1, shadow: 2048, dist: 1, grass: 1, parts: 1, aa: true, terrLod: 72, lodDist: 60 }
+  /* post: 0 = direto na tela, 1 = HDR + gradação + FXAA, 2 = + contorno cartoon + oclusão ambiente. shR = raio da sombra (m) */
+  muito_baixo: { name: 'Muito baixo', scale: .55, shadow: 0, dist: .45, grass: .1, parts: .3, aa: false, terrLod: 34, lodDist: 30, post: 0 },
+  baixo: { name: 'Baixo', scale: .7, shadow: 1024, shR: 38, dist: .6, grass: .25, parts: .5, aa: false, terrLod: 44, lodDist: 38, post: 0 },
+  medio: { name: 'Médio', scale: .85, shadow: 2048, shR: 70, dist: .8, grass: .55, parts: .75, aa: true, terrLod: 56, lodDist: 48, post: 1 },
+  alto: { name: 'Alto', scale: 1, shadow: 2048, shR: 90, shSpread: 1.35, dist: 1, grass: 1, parts: 1, aa: true, terrLod: 72, lodDist: 60, post: 2, outline: 1, ao: 1 }
 };
 
 /* ---------------- textos engraçados ---------------- */
@@ -183,7 +184,7 @@ const DEFAULT_SETTINGS = {
   quality: 'alto', renderScale: 1, shadows: 2048, viewDist: 1, grass: 1, particles: 1, aa: true,
   fov: 90, sens: 1.0, adsSens: 0.85, invertY: false, master: 0.8, sfx: 1, music: 0.35, amb: 0.6,
   crosshair: '#ffffff', crossSize: 1, showFps: false, showHints: true, showPing: true, botLevel: 'normal', bobbing: 1, hitSound: true, cameraShake: 1,
-  fpsCap: 0, shadowQ: 'auto', perfMode: false, padSens: 1, touchSize: 1, touchAlpha: .8, touchSens: 1, voice: 'off', binds: {}
+  fpsCap: 0, shadowQ: 'auto', perfMode: false, outline: 'auto', ao: 'auto', toon: true, perfHud: false, padSens: 1, touchSize: 1, touchAlpha: .8, touchSens: 1, voice: 'off', binds: {}
 };
 const IS_TOUCH = (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches) || /Android|iPhone|iPad|Mobile/i.test((typeof navigator !== 'undefined' && navigator.userAgent) || '');
 const settings = Object.assign({}, DEFAULT_SETTINGS, { quality: IS_TOUCH ? 'baixo' : 'medio' }, store.get('settings', {}));
