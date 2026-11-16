@@ -1,0 +1,314 @@
+/* =====================================================================
+   61_boot.js — fluxos (offline / host / cliente / público), cena do menu,
+   desenho por quadro, loop principal e inicialização.
+   ===================================================================== */
+'use strict';
+const QS = new URLSearchParams(location.search);
+const tabToken = () => { try { let t = sessionStorage.getItem('bk.tok'); if (!t) { t = uid(); sessionStorage.setItem('bk.tok', t); } return t; } catch (e) { return uid(); } };
+const transportKind = () => (QS.get('net') === 'local' ? 'local' : 'peer');
+
+/* posição da câmera/personagem na cena do menu (fazenda ao entardecer) */
+/* cena 3D do menu: herói em 3/4 na frente do celeiro e do silo (az = direção herói→câmera; ch = altura da câmera sobre o chão) */
+const MENU = { px: 90, pz: -34, az: .2, dist: 3.9, face: .6, ch: 1.15, pitch: 0, fov: 40, yo: .045 };
+
+const Game = {
+  /* ---------- offline ---------- */
+  startOffline(o) {
+    cleanup(); G.kind = 'offline'; G.mode = o.mode; G.lastOffline = o; useMap(mapFor(o.mode));
+    const sim = new Sim({ mode: o.mode, map: G.map, nav: G.nav, cfg: { rounds: 12, botLevel: o.botLevel || 'normal', fill: true, perTeam: 5, total: o.total || 30, ff: false } });
+    const me = sim.addPlayer({ name: profile.name, skin: profile.skin, loadout: profile.primary, local: true });
+    G.sim = sim; G.me = me; G.myId = me.id; sim.startMatch();
+    G.rinfo = new Map(sim.players.map(p => [p.id, { id: p.id, name: p.name, skin: p.skin, bot: p.bot }])); G.ents = new Map();
+    beginPlay();
+  },
+  /* ---------- anfitrião ---------- */
+  async hostRoom(o) {
+    cleanup(); const kind = transportKind(); let net = null, code = '';
+    for (let i = 0; i < 6; i++) {
+      code = o.code || makeCode();
+      net = new NetHost({ code, kind, cfg: { mode: o.mode, rounds: o.rounds || 12, fill: o.fill !== false, botLevel: o.botLevel || 'normal', pub: !!o.pub, perTeam: 5, total: o.total || 30, name: profile.name }, cb: hostCallbacks() });
+      try { await net.open(); break; } catch (e) { net = null; if (String(e) === 'taken' && !o.code) continue; throw e; }
+    }
+    if (!net) throw 'taken';
+    G.net = net; G.kind = 'host'; G.code = code; G.transport = kind; G.mode = o.mode;
+    const mem = net.addLocal({ name: profile.name, skin: profile.skin, loadout: profile.primary, token: tabToken() }); G.myId = mem.id;
+    G.scene = 'lobby'; UI.lobbyOpen(code, true, mem.id); UI.lobbyUpdate(net.lobbyMsg()); UI.lobbyChat({ n: '', t: 'Sala criada! Compartilhe o código ' + code + ' ou o link.' });
+    return code;
+  },
+  /* ---------- cliente ---------- */
+  async joinRoom(code, o) {
+    cleanup(); const kind = transportKind(), nc = new NetClient(clientCallbacks());
+    const w = await nc.connect(kind, code, { name: profile.name, skin: profile.skin, loadout: profile.primary, token: tabToken() }, o && o.timeout);
+    G.nc = nc; G.kind = 'client'; G.code = code; G.transport = kind; G.myId = nc.id; G.mode = w.cfg.mode;
+    G.scene = 'lobby'; UI.lobbyOpen(code, false, nc.id); const M = MODES[w.cfg.mode];
+    UI.lobbyUpdate({ cfg: w.cfg, members: w.members, cd: -1, min: M.min, max: M.max, phase: w.phase }); for (const m of w.chat || []) UI.lobbyChat({ n: m.n, t: m.t });
+    if (w.start) clientStart(w.start);
+    return w;
+  },
+  /* ---------- partida pública: procura sala aberta ou cria uma ---------- */
+  async publicMatch(o) {
+    const m = UI.open(`<h2>Procurando partida…</h2><p id="pmSt">Conectando ao roçado público (${MODES[o.mode].name})…</p><div class="row" style="justify-content:center;margin-top:10px"><button class="btn r" id="pmCancel">Cancelar</button></div>`);
+    let cancel = false; const st = t => { const e = m.querySelector('#pmSt'); if (e) e.textContent = t; }; m.querySelector('#pmCancel').onclick = () => { cancel = true; UI.close(); };
+    const letter = o.mode === 'tatico' ? 'T' : 'C';
+    try {
+      for (let i = 1; i <= 6 && !cancel; i++) {
+        const code = 'P' + letter + i; st(`Procurando sala ${i}/6…`);
+        try { await Game.joinRoom(code, { timeout: 4500 }); if (!cancel) { UI.close(); return; } else { Game.leave(); return; } } catch (e) { const s = String(e && e.message || e); if (s !== 'notfound' && s !== 'timeout') continue; }
+        if (cancel) return; st(`Criando sala pública ${i}…`);
+        try { await Game.hostRoom({ mode: o.mode, pub: true, code, fill: true, rounds: 12, botLevel: o.botLevel, total: o.total || 30 }); UI.close(); UI.toast('Sala pública criada! Aguardando jogadores (bots completam).'); return; }
+        catch (e) { if (String(e) === 'taken') { try { await Game.joinRoom(code, { timeout: 4500 }); UI.close(); return; } catch (e2) { } } }
+      }
+      if (!cancel) { UI.close(); UI.toast('Não foi possível achar nem criar uma sala agora. Confira sua internet e tente de novo.', 5000); }
+    } catch (e) { UI.close(); UI.toast(UI.errText(e), 5000); }
+  },
+  /* ---------- sair ---------- */
+  leave() {
+    if (G.net) { try { G.net.close(); } catch (e) { } } if (G.nc) { try { G.nc.close(); } catch (e) { } }
+    cleanup(); toMenu();
+  },
+  /* ---------- voltar ao chiqueiro ---------- */
+  toLobbyHost() {
+    if (G.kind !== 'host' || !G.net) return; G.net.backToLobby(); stopMatch(); G.scene = 'lobby'; UI.lobbyOpen(G.code, true, G.myId); UI.lobbyUpdate(G.net.lobbyMsg()); G.net.dirty = true;
+  },
+  /* ---------- tela de fim ---------- */
+  showEndScreen() {
+    if (G.endShown || G.scene !== 'play') return; G.endShown = true; try { document.exitPointerLock(); } catch (e) { }
+    const ros = getRoster().sort((a, b) => b.score - a.score), me = ros.find(r => r.isMe) || { k: 0, d: 0, score: 0 }, tat = isTat(); let win = false, sub = '';
+    let draw = false; if (tat) { const sq = G.sim ? G.sim.get(G.myId).squad : (myTeam() === T_ATK ? G.swap : G.swap ^ 1); win = G.winner === sq; draw = G.winner === -1; sub = `${draw ? 'EMPATE · ' : ''}Placar final: ${SQ_NAME[sq]} ${G.score[sq]} x ${G.score[sq ^ 1]} ${SQ_NAME[sq ^ 1]}`; }
+    else { win = G.winner === G.myId; sub = win ? 'Você foi o último de pé no galinheiro!' : (G.winner ? ownerName(G.winner) + ' foi o último de pé.' : ''); }
+    const hs = G.sim ? G.sim.get(G.myId).hs | 0 : 0, xp = 20 + me.k * 10 + Math.round(me.score / 12) + (win ? 60 : 0), L0 = levelInfo().level;
+    profile.xp += xp; profile.matches++; if (win) profile.wins++; else if (!draw) profile.losses++; profile.kills += me.k; profile.deaths += me.d; profile.heads += hs;
+    const ms = G.mstat || {}, sp = G.sim && G.sim.get(G.myId), place = sp ? sp.place | 0 : ((G.sb.get(G.myId) || {}).place | 0);
+    const got = Account.recordMatch({ mode: G.mode, win, draw, k: me.k, d: me.d, a: me.a | 0, hs: sp ? sp.hs | 0 : ms.hs | 0, shots: sp ? sp.shots | 0 : ms.shots | 0, hits: sp ? sp.hits | 0 : ms.hits | 0, time: Math.round(G.time - (G.matchT0 || G.time)), score: me.score, place, survive: ms.survive | 0, roundsWon: tat ? G.score[G.sim ? G.sim.get(G.myId).squad : 0] | 0 : 0, plants: ms.plants | 0, defuses: ms.defuses | 0, knife: ms.knife | 0, sling: ms.sling | 0, aces: ms.aces | 0, xp, sc: tat ? `${G.score[0] | 0}x${G.score[1] | 0}` : '' });
+    saveProfile(); const L1 = levelInfo().level; UI.refreshProfile(); got.forEach((A, i) => setTimeout(() => UI.toast('🏅 Conquista: ' + A.name + ' — ' + A.desc, 4000), 600 + i * 900));
+    const buttons = [];
+    if (G.kind === 'offline') { buttons.push({ t: 'Jogar de novo', cls: 'y', fn: () => { Game.startOffline(G.lastOffline); } }); buttons.push({ t: 'Menu principal', fn: () => Game.leave() }); }
+    else if (G.kind === 'host') { buttons.push({ t: 'Voltar ao Chiqueiro', cls: 'y', fn: () => Game.toLobbyHost() }); buttons.push({ t: 'Sair', cls: 'r', fn: () => Game.leave() }); }
+    else { buttons.push({ t: 'Aguardando o anfitrião…', cls: 'y', fn: () => UI.toast('O anfitrião vai levar todos de volta ao Chiqueiro.') }); buttons.push({ t: 'Sair', cls: 'r', fn: () => Game.leave() }); }
+    UI.showEnd({ win, title: draw ? 'EMPATE NO ROÇADO!' : win ? (tat ? 'DONO DO ROÇADO!' : 'SOBROU SÓ VOCÊ!') : pick(FUNNY.lose).toUpperCase(), sub, rows: ros.slice(0, 12), xp, levelUp: L1 > L0 ? L1 : 0, buttons });
+  }
+};
+
+/* ---------- limpeza / transições ---------- */
+function stopMatch() {
+  G.lastTk = 0; G.pkExp = 0; G.pkLost = 0; G.sim = null; G.pred = null; G.buf = null; G.ents = new Map(); G.me = null; G.spec = false; G.evBuf = []; G.cmdOut = []; G.loot = []; G.nades = []; G.zone = null; G.phase = 'lobby'; G.paused = false; G.matchOver = false; G.endShown = false;
+  G.bomb = { st: 'none', x: 0, y: 0, z: 0, timer: 0, carrier: 0, site: '', defBy: 0 }; Input.keys.clear(); Input.btn[0] = Input.btn[1] = Input.btn[2] = false; Input.acts.length = 0; Input.typing = false;
+  $('endscr').classList.add('hidden'); $('pause').classList.add('hidden'); $('click2play').classList.add('hidden'); try { document.exitPointerLock(); } catch (e) { }
+  sfx.stopAmbient(); if (G.fx) G.fx.clear(); if (G.R) G.R.clearDecals();
+  try { Shop.toggle(false); Bag.toggle(false); BigMap.toggle(false); Voice.stop(); } catch (e) { } Input.menu = false; G.cowS = null;
+}
+function cleanup() { stopMatch(); G.net = null; G.nc = null; G.code = ''; G.kind = 'offline'; G.reconnecting = false; G.sb = new Map(); G.rinfo = new Map(); UI.lobbyCode = ''; }
+function toMenu() {
+  useMap('fazenda'); G.scene = 'menu'; G.mode = 'tatico'; UI.screen('menu'); UI.refreshProfile(); if (G.hud) G.hud.reset(); $('endscr').innerHTML = ''; sfx.setTrack('tranquilo');
+  if (G.R) G.R.setEnv('entardecer'); if (settings.music > 0 && sfx.ctx) sfx.startMusic();
+}
+function beginPlay() {
+  G.mstat = {}; G.matchT0 = G.time; G.scene = 'play'; G.paused = false; G.spec = false; G.matchOver = false; G.endShown = false; G.winner = undefined; G.endText = ''; G.recoil = { p: 0, y: 0 }; G.view.pitch = 0; G.fovMul = 1; G.zoom = 1; G.syncView = true; G.stepAcc = 0; G.lastGnd = true;
+  G.vm = new ViewModel(); G.vm.onCue = (name, k) => { if (name === 'rl' && G.me) sfx.reloadStep(G.me.w, k, null); };
+  G.fx.clear(); G.R.clearDecals(); G.weather = -1; G.R.setEnv(G.mode === 'caos' ? 'tarde' : G.map.env); G.hud.reset(); G.hud.setMap(G.map, G.mode); UI.screen('hud'); G.hud.cache = {}; G.hud.cache.plk = '';
+  Input.keys.clear(); Input.acts.length = 0; Input.btn[0] = Input.btn[1] = Input.btn[2] = false;
+  if (G.me) { G.view.yaw = G.me.m.yaw; G.prev.x = G.me.m.x; G.prev.y = G.me.m.y; G.prev.z = G.me.m.z; G.cam.x = G.me.m.x; G.cam.y = G.me.m.y + 1.6; G.cam.z = G.me.m.z; }
+  if (Input.force) $('click2play').classList.add('hidden'); else { $('click2play').classList.remove('hidden'); lockPointer(); }
+  sfx.init(); sfx.stopMusic(); if (settings.amb > 0) sfx.startAmbient(); if (settings.music > 0) sfx.startMusic();
+  if (G.kind !== 'offline' && G.mode === 'tatico') setTimeout(() => Voice.start(), 1500);
+}
+
+/* ---------- callbacks do anfitrião ---------- */
+function hostCallbacks() {
+  return {
+    lobby: l => { if (G.scene === 'lobby') UI.lobbyUpdate(l); },
+    chat: m => { if (m.n && (profile.blocked || []).includes(m.n)) return; if (deadChatBlocked(m)) return; if (G.scene === 'lobby') UI.lobbyChat(m); else if (G.scene === 'play') G.hud.chatAdd(m.n, m.t, !m.n, 0); },
+    start: () => hostStartMatch(),
+    cmd: (mem, cmd) => { const p = G.sim && G.sim.get(mem.id); if (p && !p.bot && p.q.length < 14) p.q.push(cmd); },
+    join: mem => { UI.toast(mem.name + ' entrou na sala'); },
+    rejoin: mem => { const p = G.sim && G.sim.get(mem.id); if (p) { p.bot = false; p.ai = null; p.q.length = 0; p.connected = true; if (G.hud) G.hud.chatAdd('', mem.name + ' voltou à partida', true); } },
+    leave: (mem, inGame) => { const p = G.sim && G.sim.get(mem.id); if (p && G.scene === 'play') { p.connected = false; p.bot = true; p.ai = new BotBrain(p, G.sim.cfg.botLevel); G.hud.chatAdd('', mem.name + ' desconectou — um bot assumiu', true); } },
+    loadout: mem => { const p = G.sim && G.sim.get(mem.id); if (p) G.sim.setLoadout(p, mem.loadout); },
+    expire: mem => { }
+  };
+}
+function hostStartMatch() {
+  const net = G.net, cfg = net.cfg; if (!net) return; cleanupSimOnly();
+  G.mode = cfg.mode; useMap(mapFor(cfg.mode)); const sim = new Sim({ mode: cfg.mode, map: G.map, nav: G.nav, cfg: { rounds: cfg.rounds, botLevel: cfg.botLevel, fill: cfg.fill, perTeam: 5, total: cfg.total || 30, ff: false } });
+  for (const m of net.members.values()) sim.addPlayer({ id: m.id, name: m.name, skin: m.skin, loadout: m.loadout, token: m.token, local: !!m.host });
+  sim.startMatch(); G.sim = sim; G.me = sim.get(G.myId); G.ents = new Map();
+  G.rinfo = new Map(sim.players.map(p => [p.id, { id: p.id, name: p.name, skin: p.skin, bot: p.bot }]));
+  net.announceStart(sim.players.map(p => ({ id: p.id, name: p.name, skin: p.skin, bot: p.bot })), {});
+  beginPlay();
+}
+function cleanupSimOnly() { G.sim = null; G.ents = new Map(); }
+
+/* no 5x5, mensagens de quem está morto não chegam a quem está vivo durante a rodada */
+function deadChatBlocked(m) { if (G.scene !== 'play' || !isTat() || G.phase !== 'live' || !G.me || !G.me.alive || !m.id) return false; const e = G.ents.get(m.id); return !!(e && !e.alive); }
+
+/* ---------- callbacks do cliente ---------- */
+function clientCallbacks() {
+  return {
+    snap: onSnap,
+    lobby: l => { if (G.scene === 'lobby') UI.lobbyUpdate(l); },
+    start: m => clientStart(m),
+    end: () => { if (G.scene === 'play') { stopMatch(); useMap('fazenda'); G.scene = 'lobby'; UI.lobbyOpen(G.code, false, G.myId); } },
+    chat: m => { if (m.n && (profile.blocked || []).includes(m.n)) return; if (deadChatBlocked(m)) return; if (G.scene === 'lobby') UI.lobbyChat(m); else if (G.scene === 'play') G.hud.chatAdd(m.n, m.t, !m.n, 0); },
+    kick: m => { UI.toast(m.why || 'Você foi removido da sala.', 4500); Game.leave(); },
+    close: () => connectionLost()
+  };
+}
+function clientStart(msg) {
+  stopMatch(); G.mode = msg.mode; useMap(mapFor(msg.mode)); G.sim = null; G.rinfo = new Map(msg.roster.map(r => [r.id, r])); G.buf = new SnapBuf(); G.ents = G.buf.ent; G.sb = new Map();
+  G.pred = new Predictor(G.myId, { name: profile.name, skin: profile.skin, loadout: profile.primary }, G.map.W); G.me = G.pred.p; G.maxRounds = (msg.cfg && msg.cfg.rounds) || 12; G.loot = []; G.lootVer = -1; G.cmdOut = [];
+  beginPlay();
+}
+async function connectionLost() {
+  if (G.reconnecting || G.scene === 'menu' || !G.code) return; G.reconnecting = true; UI.toast('Conexão perdida. Tentando reconectar…', 5000); const code = G.code, kind = G.transport;
+  for (let i = 0; i < 4; i++) {
+    await new Promise(r => setTimeout(r, 1200 + i * 800)); if (!G.reconnecting) return;
+    try {
+      const nc = new NetClient(clientCallbacks()); const w = await nc.connect(kind, code, { name: profile.name, skin: profile.skin, loadout: profile.primary, token: tabToken() }, 5000);
+      G.nc = nc; G.myId = nc.id; G.reconnecting = false; UI.toast('Reconectado!'); if (w.start) clientStart(w.start); else { G.scene = 'lobby'; UI.lobbyOpen(code, false, nc.id); } return;
+    } catch (e) { }
+  }
+  G.reconnecting = false; UI.toast('Não foi possível reconectar.', 5000); Game.leave();
+}
+
+/* ===================== DESENHO POR QUADRO ===================== */
+let _fps = 60;
+function renderPlay(dt) {
+  const R = G.R, me = G.me, hud = G.hud; applyLook(dt); refreshEnts(G.alpha, dt);
+  const alive = me.alive && !G.spec; R.beginFrame(); R.time = G.time;
+  if (alive) fpCamera(G.alpha, dt); else specCamera(dt);
+  const third = alive && (me.onCow || me.chute), noVm = third || (me.m && me.m.swim) || !!me.heal;
+  if (alive && !third) { G.vm.update(dt, me, G.cam.yaw, G.cam.pitch); if (!noVm) { G.vm.healK = 0; G.vm.draw(R.vmMB, me, me.skin, G.time); } else if (me.heal && !(me.m && me.m.swim)) G.vm.drawHeal(R.vmMB, me, me.skin, G.time, dt); }
+  Pad.poll(dt); if (Shop.open) { if (!Shop.canOpen()) Shop.toggle(false); else Shop.render(); } if (Bag.open) Bag.render();
+  updateDecor(dt); updateSpotted(dt); G.decor.tick = 0;
+  drawWorldDyn(R.dyn, G.time, dt, alive && !third ? G.myId : null);
+  ambientSounds(dt, me);
+  G.fx.update(dt, G.cam); sfx.listen(G.cam.x, G.cam.y, G.cam.z, G.cam.yaw);
+  R.render(G.cam, { vm: alive && !G.scoped && (!noVm || (!!me.heal && !third && !(me.m && me.m.swim))), vmFov: 55 });
+  /* HUD */
+  const V = buildV(); hud.flashA = Math.max(hud.flashA, G.fx.flash * .9); G.fx.flash = 0; hud.update(V, dt, G.time);
+  let mode = 'cross', gap = 6; const w = WEAPONS[me.w];
+  if (!me.alive || G.spec || G.scoped) mode = 'none'; else if (!isGun(me.w)) mode = 'dot'; else { const sp = calcSpread(me, w) + (G.recoil.p / DEG) * .25; gap = Math.tan(sp * DEG) / Math.tan(G.cam.fov * DEG / 2) * (innerHeight / 2) + 4; }
+  const key = mode + Math.round(gap) + settings.crosshair + settings.crossSize; if (G.crossKey !== key) { G.crossKey = key; hud.setCross(gap, mode); }
+  const sc = $('scope'); if (!sc.firstChild) sc.innerHTML = '<div class="lens"><i class="ret"></i><b class="zl"></b></div>';
+  if (G.scoped !== G._scW || (G.scoped && G.zoom !== G._zmW)) { const ln = sc.firstChild; ln.classList.remove('in', 'zp'); void ln.offsetWidth; if (G.scoped) { ln.classList.add(G.scoped !== G._scW ? 'in' : 'zp'); ln.lastChild.textContent = (G.zoom === 2 ? 'ZOOM 2 · ' : 'ZOOM 1 · ') + 'V troca'; if (G.scoped !== G._scW) sfx.ui(0); } G._scW = G.scoped; G._zmW = G.zoom; }
+  sc.style.display = G.scoped ? 'block' : 'none'; sc.style.opacity = G.scoped ? 1 : 0;
+  BigMap.draw(V, G.time);
+  /* trilha conforme a situação */
+  G.musT = (G.musT || 0) - dt; if (G.musT <= 0 && settings.music > 0) { G.musT = 1; let tr = 'tranquilo';
+    if (G.matchOver) tr = 'vitoria'; else if (isTat()) tr = G.phase === 'live' ? 'celeiro' : 'tranquilo';
+    else if (G.phase === 'live') tr = (G.aliveCount | 0) <= 5 ? 'ultimos' : G.zone && G.zone[9] === 1 ? 'correria' : G.time - (G.combatT || -99) < 10 ? 'celeiro' : 'tranquilo';
+    sfx.setTrack(tr); }
+  G.tabT = (G.tabT || 0) - dt; if (Input.tab || Input.tabPad) { if (G.tabT <= 0) { hud.tab(true, V); G.tabT = .3; } } else if (hud.tabOn) hud.tab(false, V);
+  drawTags();
+}
+function ambientSounds(dt, me) {
+  const b = G.bomb, cam = G.cam;
+  if (b.st === 'planted' && G.phase === 'live') { G.beepT -= dt; if (G.beepT <= 0) { const f = 1 - clamp(b.timer / 40, 0, 1); G.beepT = lerp(1.0, .12, f * f); sfx.beep({ x: b.x, y: b.y + .3, z: b.z }, b.timer < 10); } }
+  G.tickT -= dt; const tick = G.tickT <= 0; if (tick) G.tickT = .26;
+  for (const e of G.ents.values()) {
+    if (!e.alive || e.id === G.myId) { continue; }
+    if (tick && e.uk) sfx.plantTick({ x: e.x, y: e.y + 1, z: e.z });
+    const dx = e.x - cam.x, dz = e.z - cam.z, d2 = dx * dx + dz * dz; if (d2 > 38 * 38 || e.spd < 2.4 || e.air) continue;
+    e.stepAcc += e.spd * dt; const stride = e.spd > 6 ? 2.4 : 2; if (e.stepAcc > stride) { e.stepAcc = 0; sfx.step(G.map.W.surfaceAt(e.x, e.z), { x: e.x, y: e.y, z: e.z }, (e.cr > .5 ? .25 : e.spd > 6 ? 1 : .6)); }
+  }
+  if (me && me.useK && tick) sfx.plantTick(null);
+}
+/* bichos do menu: porquinho e galinhas na estrada de terra, à esquerda do herói (como na arte de referência) */
+function menuDecor(t, ccx, ccz) {
+  const M = MENU, W = G.map.W, yaw = M.az + M.yo, fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  if (!G.menuAnimals) {
+    const at = (f, r) => { const x = ccx + fx * f + rx * r, z = ccz + fz * f + rz * r; return { x, z, y: W.heightAt(x, z) }; };
+    G.menuAnimals = { pig: Object.assign(at(7.2, -3.4), { yaw: yaw + Math.PI - .55, ph: 0, walk: false, eat: true }), chk: [Object.assign(at(4.9, -2.1), { yaw: yaw + Math.PI + .6, ph: 1, col: 0xf4eee0 }), Object.assign(at(6.3, -1.4), { yaw: yaw + Math.PI - .4, ph: 3, col: 0xe8c890 })] };
+  }
+  const a = G.menuAnimals; a.pig.eat = Math.sin(t * .5) > -.2; drawPig(G.R.dyn, a.pig, t); for (const c of a.chk) { c.ph = t * 2 + c.x; drawChicken(G.R.dyn, c); }
+}
+function renderMenu(dt) {
+  if (G.maps.fazenda && G.map !== G.maps.fazenda.map) useMap('fazenda');   /* menu e chiqueiro mostram a fazenda */
+  const R = G.R, t = G.time, cam = G.cam, M = MENU, W = G.map.W; R.beginFrame(); R.time = t; R.setEnv('entardecer');
+  const gy = W.heightAt(M.px, M.pz), ccx = M.px + Math.sin(M.az) * M.dist, ccz = M.pz + Math.cos(M.az) * M.dist;
+  cam.x = ccx + Math.sin(t * .17) * .22; cam.y = W.heightAt(ccx, ccz) + M.ch + Math.sin(t * .23) * .04; cam.z = ccz + Math.cos(t * .13) * .1; cam.yaw = M.az + M.yo + Math.sin(t * .15) * .035; cam.pitch = M.pitch; cam.roll = 0; cam.fov = M.fov * (innerWidth / innerHeight < 1.4 ? 1.2 : 1);
+  G.mode = 'tatico'; G.nades = []; G.loot = []; G.bomb = { st: 'none', x: 0, y: 0, z: 0, timer: 0 }; updateDecor(dt);
+  menuDecor(t, ccx, ccz); drawChar(R.dyn, { x: M.px, y: gy, z: M.pz, yaw: M.az + Math.PI + M.face + Math.sin(t * .6) * .03, pitch: .05 + Math.sin(t * 1.1) * .01, skin: profile.skin, wid: profile.primary === 'vassoura' ? 'vassoura' : profile.primary === 'colher' ? 'colher' : 'galho', cr: 0, spd: 0, wph: 0, team: 0 }, { time: t });
+  drawWorldDyn(R.dyn, t, dt, null); G.fx.update(dt, cam); sfx.listen(cam.x, cam.y, cam.z, cam.yaw); R.render(cam, { vm: false });
+  if (G.tagsCv) { const c = G.tagsCv.getContext('2d'); c.clearRect(0, 0, G.tagsCv.width, G.tagsCv.height); }
+}
+function renderFrame(dt) {
+  G.R.resize();
+  if (G.scene === 'play' && G.me) renderPlay(dt); else if (G.scene === 'menu' || G.scene === 'lobby') renderMenu(dt);
+}
+
+/* ===================== LOOP PRINCIPAL ===================== */
+let _last = performance.now(), _acc = 0;
+function advance(ts) {
+  let dt = (ts - _last) / 1000; if (dt <= 0) return 0; _last = ts; dt = Math.min(dt, window.__dtMax || .25); G.time += dt;
+  if (G.kind === 'host' && G.net) G.net.tick(dt);
+  if (G.scene === 'play' && !G.paused) { _acc += dt; let n = 0; while (_acc >= DT && n < 6) { fixedStep(); _acc -= DT; n++; } if (n >= 6) _acc = 0; flushNet(); }
+  G.alpha = _acc / DT; return dt;
+}
+function frame(ts) {
+  requestAnimationFrame(frame); const dt0 = advance(ts); if (dt0 <= 0) return;
+  G.rdt = (G.rdt || 0) + dt0; const cap = +settings.fpsCap || 0;
+  if (cap && G.rdt < 1 / cap - 0.004) return;           /* limite de FPS: pula o desenho, a simulação continua */
+  const dt = Math.min(G.rdt, .25); G.rdt = 0;
+  G.fpsAcc += dt; G.fpsN++; if (G.fpsAcc > .5) { G.fps = G.fpsN / G.fpsAcc; G.fpsAcc = 0; G.fpsN = 0; }
+  try { renderFrame(dt); } catch (e) { if (!G.errShown) { G.errShown = true; console.error(e); UI.toast('Erro: ' + (e && e.message || e), 6000); } }
+}
+function startMetronome() {
+  try { const w = new Worker(URL.createObjectURL(new Blob(['setInterval(()=>postMessage(0),15)'], { type: 'text/javascript' }))); w.onmessage = () => { if (document.hidden && (G.kind === 'host' || G.kind === 'client')) { try { advance(performance.now()); } catch (e) { } } }; } catch (e) { }
+}
+
+/* ===================== INICIALIZAÇÃO ===================== */
+const tick = () => new Promise(r => setTimeout(r, 24));
+function applySettings(key) {
+  saveSettings(); sfx.apply(); if (!G.R) return; if (key === 'quality' || key === 'perfMode' || key === 'shadowQ') G.R.setQuality(); if (key && key.startsWith('touch')) Touch.apply(); if (key === 'voice') { if (settings.voice === 'off') Voice.stop(); else if (G.scene === 'play') Voice.start(); } G.R.resize(); G.crossKey = ''; if (key === 'music') { if (settings.music > 0 && sfx.ctx && G.scene !== 'play') sfx.startMusic(); }
+}
+/* ===================== MAPAS INDEPENDENTES =====================
+   5x5 → "Vila do Roçado" (arena competitiva) · Todos contra Todos → "Fazenda do Zé" (500 x 500) */
+G.maps = {};
+const mapFor = mode => (mode === 'tatico' ? 'arena' : 'fazenda');
+function ensureMap(id) {
+  if (G.maps[id]) return G.maps[id]; const t0 = performance.now();
+  const map = id === 'arena' ? buildArena(7) : buildFazenda(1), e = { map, scene: G.R.buildScene(map.render), nav: new NavGrid(map) };
+  G.maps[id] = e; console.log('mapa', id, Math.round(performance.now() - t0) + ' ms'); return e;
+}
+function useMap(id) {
+  const e = ensureMap(id); if (G.map === e.map) return; G.map = e.map; G.nav = e.nav; G.R.setScene(e.scene); G.R.clearDecals(); if (G.fx) G.fx.W = e.map.W; G.menuAnimals = null; initDecor();
+}
+async function boot() {
+  const bar = $('loadBar'), msg = $('loadMsg'), prog = (f, m) => { bar.style.width = Math.round(f * 100) + '%'; if (m) msg.textContent = m; };
+  if (QS.get('test') === '1') Input.force = true;
+  prog(.03, 'Acordando o galo…'); await tick();
+  let R; try { R = new Renderer($('cv'), settings); } catch (e) { msg.textContent = 'Seu navegador não suporta WebGL2 (' + (e && e.message) + '). Tente o Chrome, Edge ou Firefox atualizados.'; return; }
+  G.R = R; await R.init(f => { try { prog(.05 + Math.min(1, f || 0) * .3, 'Pintando as texturas…'); } catch (e) { } });
+  prog(.4, 'Plantando o milharal…'); await tick(); const fz = buildFazenda(1);
+  prog(.7, 'Erguendo o celeiro…'); await tick(); G.maps.fazenda = { map: fz, scene: R.buildScene(fz.render), nav: null };
+  prog(.85, 'Treinando os bots…'); await tick(); G.maps.fazenda.nav = new NavGrid(fz);
+  G.fx = new FX(R); G.hud = new HUD(); G.vm = new ViewModel(); useMap('fazenda');
+  const tg = document.createElement('canvas'); tg.id = 'tags'; tg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none'; $('hud').insertBefore(tg, $('hud').firstChild); G.tagsCv = tg;
+  initInput(); UI.initMenu(); wireUI(); startMetronome(); Pad.init(); Touch.init();
+  /* áudio só depois do primeiro gesto */
+  const unlock = () => { sfx.init(); if (G.scene !== 'play' && settings.music > 0) sfx.startMusic(); removeEventListener('pointerdown', unlock); removeEventListener('keydown', unlock); }; addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
+  prog(1, 'Tudo pronto!'); G.scene = 'menu'; UI.screen('menu'); R.setEnv('entardecer');
+  if (!Account.resume() && !store.get('guestOk', false) && QS.get('test') !== '1') setTimeout(() => AccUI.open(true), 900); else UI.refreshProfile();
+  requestAnimationFrame(t => { _last = t; frame(t); });
+  setTimeout(() => { try { if (G.scene !== 'play') ensureMap('arena'); } catch (e) { console.error(e); } }, 1800);   /* o mapa 5x5 fica pronto em segundo plano */
+  const ld = $('loading'); ld.classList.add('fade'); setTimeout(() => ld.classList.add('hidden'), 700);
+  const code = (QS.get('sala') || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.length >= 3) setTimeout(() => UI.joinModal(code), 600);
+  const auto = QS.get('auto'); if (auto) setTimeout(() => Game.startOffline({ mode: auto, botLevel: QS.get('lv') || 'normal' }), 400);
+}
+function wireUI() {
+  UI.on.offline = o => Game.startOffline(o);
+  UI.on.pub = o => Game.publicMatch(o);
+  UI.on.host = o => Game.hostRoom(o);
+  UI.on.join = code => Game.joinRoom(code);
+  UI.on.settings = k => applySettings(k);
+  UI.on.resumeFromSettings = () => { };
+  UI.on.profile = () => { };
+  UI.on.start = () => { if (G.kind === 'host' && G.net) { if (!G.net.startNow()) UI.toast('Não foi possível iniciar agora.'); } };
+  UI.on.cfg = c => { if (G.kind === 'host' && G.net) { G.net.setCfg(c); if (c.mode) G.mode = c.mode; UI.lobbyUpdate(G.net.lobbyMsg()); } };
+  UI.on.loadout = id => { if (G.kind === 'host' && G.net) { G.net.hostMember.loadout = id; } else if (G.nc) G.nc.send({ k: 'lo', v: id }); };
+  UI.on.chat = text => sendChat(text);
+  UI.on.leave = () => Game.leave();
+}
+window.__ff = n => { for (let i = 0; i < n; i++) fixedStep(); }; window.MENU = MENU; window.G = G; window.Game = Game; window.UI = UI; window.Input = Input;
+boot().catch(e => { console.error(e); const m = document.getElementById('loadMsg'); if (m) m.textContent = 'Erro ao iniciar: ' + (e && e.message || e); });
