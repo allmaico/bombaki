@@ -1,0 +1,19 @@
+{
+  "name": "bombaki",
+  "version": "7.10.0",
+  "private": true,
+  "description": "BOMBAKI — Guerra no Roçado (FPS rural no navegador)",
+  "scripts": {
+    "build": "node build.js",
+    "build:split": "node build.js --split publicar",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bash test/all.sh"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  }
+}
